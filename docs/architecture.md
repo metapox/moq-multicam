@@ -1,62 +1,104 @@
 # Architecture
 
-## Crate Structure
+## Overview
 
 ```
-moq-multicam/
-├── moq-multicam-core     # Shared types: track naming, camera metadata, plugin traits
-├── moq-multicam-bridge   # Video source → MoQ publisher (GStreamer, V4L2)
-├── moq-multicam-relay    # Relay server with multi-camera features
-└── moq-multicam-cli      # CLI tool (binary: moq-multicam)
+Vehicle/Edge                     Cloud                        Operator
+────────────                  ──────────                   ──────────────
+
+┌─────────┐                  ┌──────────┐                 ┌────────────┐
+│ Camera×4 │                 │          │                 │ Browser    │
+│ front    │──┐              │          │──WebTransport──│ Multi-cam  │
+│ rear     │  │  QUIC/       │  relay   │                │ viewer     │
+│ left     │──┼──MoQ─────── │          │──WebTransport──│            │
+│ right    │  │  (5G/LTE)   │          │                 └────────────┘
+└─────────┘  │              └──────────┘
+             ▼
+        ┌─────────┐
+        │ bridge  │  ← One process bundles all cameras
+        └─────────┘
 ```
 
-### Dependency Graph
+## Data Flow (single frame, end to end)
 
 ```
-core ← bridge
-core ← relay
-core + bridge ← cli
+① Camera captures image (raw ~6MB)
+        ↓
+② GStreamer encodes to H.264 (a few KB~tens of KB)
+        ↓
+③ hang wraps into fMP4 segment (with codec/resolution metadata)
+        ↓
+④ bridge writes to moq-lite Track
+   Track name: vehicle/truck-01/camera/front/video
+   Written per Group (one Group = one keyframe interval)
+        ↓
+⑤ QUIC sends over the internet to relay
+   Connection survives 5G↔LTE handover
+        ↓
+⑥ relay forwards only to browsers that subscribed to this Track
+   Under bandwidth pressure, lower-priority cameras degrade first
+        ↓
+⑦ Browser receives via WebTransport
+        ↓
+⑧ WebCodecs decodes H.264 → renders to Canvas
 ```
 
-This mirrors the MoQ pub/sub architecture: publishers (bridge) and subscribers are fully decoupled through a relay. Separating bridge and relay into distinct crates enforces this at the code level.
-
-### core
-
-Shared definitions used by both publisher and subscriber sides:
-
-- Track naming convention (`vehicle/{id}/camera/{name}/video`)
-- Camera metadata types
-- Plugin traits for extensibility (AI inference, custom processing)
-
-### bridge
-
-Converts video sources into MoQ tracks. Pipeline:
+## Crate Responsibilities
 
 ```
-Camera/GStreamer → H.264 encode → fMP4 segment (via hang) → moq-lite Track
+┌──────────────────────────────────────────────────────────┐
+│                    moq-multicam-core                      │
+│                                                          │
+│  Track naming     Camera types    Priority   Plugin trait │
+│                                                          │
+│  Shared definitions used by all crates. No runtime logic.│
+└──────────┬───────────────────────────────┬───────────────┘
+           │                               │
+           ▼                               ▼
+┌──────────────────────┐      ┌──────────────────────────┐
+│  moq-multicam-bridge │      │  moq-multicam-relay      │
+│                      │      │                          │
+│  Camera capture      │      │  Fan-out relay           │
+│  (GStreamer)         │      │  Camera group management │
+│  H.264 encode        │      │  Priority-based          │
+│  fMP4 segmentation   │      │  bandwidth allocation    │
+│  Multi-track publish │      │  Vehicle online/offline  │
+│  Adaptive bitrate    │      │                          │
+│                      │      │  (wraps moq-relay)       │
+│  Runs on vehicle/edge│      │  Runs on cloud           │
+└──────────────────────┘      └──────────────────────────┘
+           │                               │
+           └───────────┬───────────────────┘
+                       ▼
+           ┌──────────────────────┐
+           │  moq-multicam-cli   │
+           │                     │
+           │  moq-multicam publish  ← starts bridge
+           │  moq-multicam relay    ← starts relay
+           │                     │
+           │  Single binary      │
+           └──────────────────────┘
+
+           ┌──────────────────────┐
+           │  web/ (TypeScript)  │
+           │                     │
+           │  Multi-camera grid  │
+           │  Camera switching   │
+           │  Dynamic subscribe  │
+           │                     │
+           │  Runs in browser    │
+           └──────────────────────┘
 ```
-
-### relay
-
-Wraps moq-relay with multi-camera awareness:
-
-- Track discovery and routing
-- Priority-based bandwidth adaptation (e.g., front camera > side cameras)
-- Camera group management per vehicle
-
-### cli
-
-User-facing binary that composes bridge + core for publishing, and connects to relay.
 
 ## MoQ Protocol Stack
 
 ```
 ┌─────────────────────────┐
-│  Application (multicam) │  Track naming, camera management
+│  moq-multicam           │  Track naming, camera groups, priority, adaptive bitrate
 ├─────────────────────────┤
 │  hang                   │  Media layer: catalog, fMP4/CMAF container, timestamps
 ├─────────────────────────┤
-│  moq-lite               │  Pub/Sub transport: Broadcasts, Tracks, Groups, Frames
+│  moq-lite               │  Pub/Sub: Broadcasts, Tracks, Groups, Frames
 ├─────────────────────────┤
 │  moq-native             │  QUIC connection helper (Quinn + TLS + WebTransport)
 ├─────────────────────────┤
@@ -64,44 +106,29 @@ User-facing binary that composes bridge + core for publishing, and connects to r
 └─────────────────────────┘
 ```
 
-### Why moq-lite (not IETF moq-transport)
-
-moq-lite is a forwards-compatible subset of the IETF moq-transport draft.
-
-- **Stability**: Controlled by moq-dev, not subject to IETF draft churn
-- **Maturity**: Production-tested at quic.video
-- **Compatibility**: moq-lite clients work with any moq-transport CDN, so migration to the full spec is seamless
-
-### What hang does
-
-MoQ itself is a generic byte-stream pub/sub — it knows nothing about video. hang provides:
-
-- **Catalog**: Metadata describing which Track carries which codec/resolution
-- **Container**: fMP4/CMAF segment generation and parsing
-- **Sync**: Keyframe-aligned Groups for timestamp synchronization
-
-### What moq-native does
-
-Abstracts Quinn QUIC connections: TLS certificate handling, WebTransport session establishment, reconnection. Used by both bridge and relay. The `iroh` feature (P2P networking) is disabled — not needed for our use case.
-
-## Data Flow
+## Bandwidth Adaptation (core value of moq-multicam)
 
 ```
-[Camera] → GStreamer → H.264 → [bridge] → fMP4 segments
-                                    │
-                                    ▼
-                              moq-lite Track
-                                    │
-                              QUIC / WebTransport
-                                    │
-                                    ▼
-                               [relay]
-                                    │
-                         ┌──────────┼──────────┐
-                         ▼          ▼          ▼
-                    [Browser]  [Browser]  [Browser]
-                    WebTransport + WebCodecs
+Normal (20 Mbps):
+  front  → high quality (5 Mbps)   priority=0
+  rear   → high quality (5 Mbps)   priority=1
+  left   → high quality (5 Mbps)   priority=2
+  right  → high quality (5 Mbps)   priority=2
+
+Degraded (10 Mbps):
+  front  → high quality (5 Mbps)   ← highest priority, maintained
+  rear   → high quality (5 Mbps)   ← maintained
+  left   → low quality (0.5 Mbps)  ← degraded
+  right  → low quality (0.5 Mbps)  ← degraded
+
+Severe (4 Mbps):
+  front  → high quality (3 Mbps)   ← slightly reduced but maintained
+  rear   → low quality (0.5 Mbps)  ← degraded
+  left   → paused                  ← suspended
+  right  → paused                  ← suspended
 ```
+
+This is enabled by: core's priority definitions + relay's bandwidth allocation + bridge's adaptive bitrate + moq-lite's Group skipping (drop old data, prioritize new).
 
 ## Track Naming Convention
 
@@ -111,3 +138,11 @@ vehicle/{vehicle_id}/camera/{camera_name}/video-low   # Low quality
 vehicle/{vehicle_id}/meta/status                      # Vehicle status
 vehicle/{vehicle_id}/meta/detections                  # AI detections
 ```
+
+## Why moq-lite (not IETF moq-transport)
+
+moq-lite is a forwards-compatible subset of the IETF moq-transport draft.
+
+- **Stability**: Controlled by moq-dev, not subject to IETF draft churn
+- **Maturity**: Production-tested at quic.video
+- **Compatibility**: moq-lite clients work with any moq-transport CDN, so migration to the full spec is seamless
