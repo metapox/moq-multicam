@@ -11,7 +11,7 @@ repository = "https://github.com/nicekumi/moq-multicam"
 
 [workspace.dependencies]
 moq-lite = "0.15"
-moq-native = { version = "0.13", default-features = false }
+moq-native = { version = "0.13", default-features = false, features = ["quinn", "aws-lc-rs"] }
 moq-mux = "0.3"
 hang = "0.15"
 tokio = { version = "1", features = ["full"] }
