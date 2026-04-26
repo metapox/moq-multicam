@@ -1,0 +1,14 @@
+[package]
+name = "moq-multicam-core"
+description = "Core library for moq-multicam: track management, sync, and plugin traits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+moq-lite = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

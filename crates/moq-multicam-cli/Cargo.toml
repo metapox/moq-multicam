@@ -1,0 +1,20 @@
+[package]
+name = "moq-multicam-cli"
+description = "CLI tool for moq-multicam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "moq-multicam"
+path = "src/main.rs"
+
+[dependencies]
+moq-multicam-core = { path = "../moq-multicam-core" }
+moq-multicam-bridge = { path = "../moq-multicam-bridge" }
+moq-native = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

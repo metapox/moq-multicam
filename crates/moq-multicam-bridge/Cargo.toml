@@ -1,0 +1,15 @@
+[package]
+name = "moq-multicam-bridge"
+description = "Video source to MoQ publisher bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+moq-multicam-core = { path = "../moq-multicam-core" }
+moq-lite = { workspace = true }
+moq-mux = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
