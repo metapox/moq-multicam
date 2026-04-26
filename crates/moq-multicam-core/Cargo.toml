@@ -12,3 +12,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
