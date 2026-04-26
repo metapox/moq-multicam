@@ -7,7 +7,7 @@ pub use moq_lite::{
     Broadcast, BroadcastProducer,
     GroupProducer,
     Origin, OriginConsumer, OriginProducer,
-    Track, TrackConsumer, TrackProducer,
+    Path, Track, TrackConsumer, TrackProducer,
 };
 
 use crate::{CameraConfig, Quality, TrackPath};

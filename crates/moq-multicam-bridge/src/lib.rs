@@ -1,3 +1,3 @@
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+mod test_source;
+
+pub use test_source::TestSource;

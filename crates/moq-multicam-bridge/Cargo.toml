@@ -13,3 +13,4 @@ moq-mux = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+bytes = "1"

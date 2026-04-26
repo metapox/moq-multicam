@@ -1,0 +1,13 @@
+[package]
+name = "multicam-test-source"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+moq-multicam-core = { path = "../../crates/moq-multicam-core" }
+moq-multicam-bridge = { path = "../../crates/moq-multicam-bridge" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
