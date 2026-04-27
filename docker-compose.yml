@@ -4,7 +4,8 @@ services:
       context: .
       target: relay
     ports:
-      - "4443:4443"
+      - "4443:4443/tcp"
+      - "4443:4443/udp"
     command: >
       --server-bind [::]:4443
       --tls-generate localhost
@@ -21,7 +22,7 @@ services:
       publish-fmp4
       --relay https://relay:4443
       --camera front --camera rear
-      --source gstreamer
+      --source ffmpeg
       --tls-disable-verify
 
   web:
