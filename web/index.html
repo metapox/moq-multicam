@@ -9,7 +9,7 @@
     .grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; }
     .cam { background: #222; border-radius: 4px; overflow: hidden; }
     .cam label { display: block; text-align: center; padding: 4px; font-size: 0.8rem; opacity: 0.7; }
-    moq-watch { display: block; width: 640px; height: 480px; }
+    canvas { max-width: 640px; height: auto; }
   </style>
 </head>
 <body>
@@ -17,15 +17,24 @@
   <div class="grid">
     <div class="cam">
       <label>front</label>
-      <moq-watch url="https://localhost:4443/vehicle/truck-01/camera/front"></moq-watch>
+      <moq-watch url="http://localhost:4443" name="vehicle/truck-01/camera/front">
+        <canvas></canvas>
+      </moq-watch>
     </div>
     <div class="cam">
       <label>rear</label>
-      <moq-watch url="https://localhost:4443/vehicle/truck-01/camera/rear"></moq-watch>
+      <moq-watch url="http://localhost:4443" name="vehicle/truck-01/camera/rear">
+        <canvas></canvas>
+      </moq-watch>
     </div>
   </div>
   <script type="module">
-    import "@moq/watch/ui";
+    console.log("script loaded");
+    import("@moq/watch/element").then(() => {
+      console.log("moq-watch element registered:", customElements.get("moq-watch"));
+    }).catch(err => {
+      console.error("import failed:", err);
+    });
   </script>
 </body>
 </html>
