@@ -125,6 +125,10 @@ fn parse_source(s: &str) -> Result<publish_fmp4::SourceKind> {
         "gstreamer" | "gst" => Ok(publish_fmp4::SourceKind::Gstreamer),
         #[cfg(not(feature = "gstreamer"))]
         "gstreamer" | "gst" => anyhow::bail!("gstreamer support not compiled in (enable 'gstreamer' feature)"),
-        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer)"),
+        #[cfg(feature = "openh264")]
+        "openh264" => Ok(publish_fmp4::SourceKind::OpenH264),
+        #[cfg(not(feature = "openh264"))]
+        "openh264" => anyhow::bail!("openh264 support not compiled in (enable 'openh264' feature)"),
+        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer, openh264)"),
     }
 }

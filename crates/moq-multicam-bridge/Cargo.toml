@@ -24,6 +24,11 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.openh264]
+workspace = true
+optional = true
+
 [features]
 default = []
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+openh264 = ["dep:openh264"]

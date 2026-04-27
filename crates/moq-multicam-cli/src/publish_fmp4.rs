@@ -13,7 +13,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use moq_multicam_core::CameraConfig;
-#[cfg(feature = "gstreamer")]
+#[cfg(any(feature = "gstreamer", feature = "openh264"))]
 use moq_multicam_bridge::VideoSource;
 
 /// Video source backend.
@@ -22,6 +22,8 @@ pub enum SourceKind {
     Ffmpeg,
     #[cfg(feature = "gstreamer")]
     Gstreamer,
+    #[cfg(feature = "openh264")]
+    OpenH264,
 }
 
 /// Rendition configuration for adaptive bitrate.
@@ -81,6 +83,8 @@ pub async fn run_multicam(
         SourceKind::Ffmpeg => run_multicam_ffmpeg(&origin, vehicle_id, cameras, reconnect).await,
         #[cfg(feature = "gstreamer")]
         SourceKind::Gstreamer => run_multicam_gstreamer(&origin, vehicle_id, cameras, reconnect).await,
+        #[cfg(feature = "openh264")]
+        SourceKind::OpenH264 => run_multicam_openh264(&origin, vehicle_id, cameras, reconnect).await,
     }
 }
 
@@ -235,6 +239,60 @@ fn publish_camera(
     cam: &CameraConfig,
     join_set: &mut JoinSet<String>,
 ) -> Result<(moq_lite::BroadcastProducer, moq_mux::CatalogProducer)> {
+    publish_camera_with(origin, vehicle_id, cam, join_set, |r| {
+        moq_multicam_bridge::GstreamerSource::new(r.width, r.height, 30, r.bitrate_kbps)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// OpenH264 mode
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "openh264")]
+async fn run_multicam_openh264(
+    origin: &moq_lite::OriginProducer,
+    vehicle_id: &str,
+    cameras: &[CameraConfig],
+    reconnect: moq_native::Reconnect,
+) -> Result<()> {
+    let mut join_set = JoinSet::new();
+
+    publish_manifest(origin, vehicle_id, cameras)?;
+
+    let mut broadcast_handles = Vec::new();
+
+    for cam in cameras {
+        let handles = publish_camera_with(origin, vehicle_id, cam, &mut join_set, |r| {
+            moq_multicam_bridge::OpenH264Source::new(r.width, r.height, 30, r.bitrate_kbps)
+        })?;
+        broadcast_handles.push(handles);
+    }
+
+    tracing::info!("all cameras publishing (openh264). Press Ctrl+C to stop.");
+
+    loop {
+        tokio::select! {
+            res = reconnect.closed() => { res?; break; }
+            Some(result) = join_set.join_next() => {
+                let cam_name = result?;
+                tracing::warn!(camera = %cam_name, "camera stopped");
+            }
+        }
+    }
+
+    join_set.abort_all();
+    Ok(())
+}
+
+/// Generic camera publisher — works with any VideoSource.
+#[cfg(any(feature = "gstreamer", feature = "openh264"))]
+fn publish_camera_with<S: VideoSource>(
+    origin: &moq_lite::OriginProducer,
+    vehicle_id: &str,
+    cam: &CameraConfig,
+    join_set: &mut JoinSet<String>,
+    make_source: impl Fn(&Rendition) -> S,
+) -> Result<(moq_lite::BroadcastProducer, moq_mux::CatalogProducer)> {
     let broadcast_path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
     let mut broadcast = moq_lite::Broadcast::produce();
     let mut catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
@@ -255,12 +313,12 @@ fn publish_camera(
 
         tracing::info!(camera = %cam.name, track = %r.track_name, w = %r.width, h = %r.height, bitrate_kbps = %r.bitrate_kbps, "publishing rendition");
 
-        let source = moq_multicam_bridge::GstreamerSource::new(r.width, r.height, 30, r.bitrate_kbps);
+        let source = make_source(r);
         let name = cam.name.clone();
         let track_name = r.track_name.to_string();
         join_set.spawn(async move {
             if let Err(e) = source.run(producer).await {
-                tracing::error!(camera = %name, rendition = %track_name, "gstreamer source failed: {e}");
+                tracing::error!(camera = %name, rendition = %track_name, "source failed: {e}");
             }
             name
         });

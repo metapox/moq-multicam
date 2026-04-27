@@ -23,3 +23,6 @@ serde = { version = "1", features = ["derive"] }
 # GStreamer (optional, behind feature flag)
 gstreamer = "0.23"
 gstreamer-app = "0.23"
+
+# OpenH264 (optional, behind feature flag)
+openh264 = "0.4"
