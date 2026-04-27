@@ -70,14 +70,14 @@ impl VideoSource for OpenH264Source {
     }
 }
 
-/// Generate an RGB test pattern with color bars that shift over time.
+/// Generate an RGB test pattern — static color bars with a moving indicator line.
 fn generate_test_rgb(w: usize, h: usize, frame: u64) -> Vec<u8> {
     let mut rgb = vec![0u8; w * h * 3];
-    let shift = (frame % 8) as usize;
 
+    // Static 8 vertical color bars
     for row in 0..h {
         for col in 0..w {
-            let bar = ((col * 8 / w) + shift) % 8;
+            let bar = col * 8 / w;
             let (r, g, b) = COLOR_BARS_RGB[bar];
             let idx = (row * w + col) * 3;
             rgb[idx] = r;
@@ -85,6 +85,16 @@ fn generate_test_rgb(w: usize, h: usize, frame: u64) -> Vec<u8> {
             rgb[idx + 2] = b;
         }
     }
+
+    // Thin horizontal white line that moves down slowly (1 row per frame)
+    let line_row = (frame as usize) % h;
+    for col in 0..w {
+        let idx = (line_row * w + col) * 3;
+        rgb[idx] = 255;
+        rgb[idx + 1] = 255;
+        rgb[idx + 2] = 255;
+    }
+
     rgb
 }
 
