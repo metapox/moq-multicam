@@ -86,7 +86,7 @@ async fn run_multicam_ffmpeg(
     camera_loop(origin, vehicle_id, SourceKind::Ffmpeg, reconnect, &mut join_set).await
 }
 
-/// GStreamer mode: single Broadcast, all cameras as named tracks.
+/// GStreamer mode: single Broadcast, all cameras with high/low renditions.
 #[cfg(feature = "gstreamer")]
 async fn run_multicam_gstreamer(
     origin: &moq_lite::OriginProducer,
@@ -100,52 +100,41 @@ async fn run_multicam_gstreamer(
 
     let mut join_set = JoinSet::new();
 
+    let renditions = [
+        ("video", 640, 480, 2000u32, 0u8),      // high: priority 0 (highest)
+        ("video-low", 320, 240, 500u32, 2u8),    // low: priority 2
+    ];
+
     for cam in cameras {
-        let track_name = format!("camera/{}/video", cam.name);
-        let track = broadcast.create_track(moq_lite::Track {
-            name: track_name.clone(),
-            priority: cam.priority,
-        })?;
+        for &(suffix, w, h, bitrate_kbps, prio_offset) in &renditions {
+            let track_name = format!("camera/{}/{}", cam.name, suffix);
+            let track = broadcast.create_track(moq_lite::Track {
+                name: track_name.clone(),
+                priority: cam.priority + prio_offset,
+            })?;
 
-        let producer = hang::container::OrderedProducer::new(track);
+            let producer = hang::container::OrderedProducer::new(track);
 
-        // Add to catalog
-        {
-            let mut cat = catalog.lock();
-            cat.video.insert(
-                &track_name,
-                hang::catalog::VideoConfig {
-                    codec: hang::catalog::H264 {
-                        profile: 0x42,
-                        constraints: 0xC0,
-                        level: 0x1E,
-                        inline: true,
-                    }
-                    .into(),
-                    description: None,
-                    coded_width: Some(640),
-                    coded_height: Some(480),
-                    display_ratio_width: None,
-                    display_ratio_height: None,
-                    bitrate: None,
-                    framerate: Some(30.0),
-                    optimize_for_latency: None,
-                    container: hang::catalog::Container::Legacy,
-                    jitter: None,
-                },
-            )?;
-        }
-
-        tracing::info!(camera = %cam.name, track = %track_name, "publishing camera track");
-
-        let source = moq_multicam_bridge::GstreamerSource::new(640, 480, 30);
-        let name = cam.name.clone();
-        join_set.spawn(async move {
-            if let Err(e) = source.run(producer).await {
-                tracing::error!(camera = %name, "gstreamer source failed: {e}");
+            {
+                let mut cat = catalog.lock();
+                cat.video.insert(
+                    &track_name,
+                    make_video_config(w, h, bitrate_kbps, 30.0),
+                )?;
             }
-            name
-        });
+
+            tracing::info!(camera = %cam.name, track = %track_name, %w, %h, %bitrate_kbps, "publishing rendition");
+
+            let source = moq_multicam_bridge::GstreamerSource::new(w, h, 30, bitrate_kbps);
+            let name = cam.name.clone();
+            let suf = suffix.to_string();
+            join_set.spawn(async move {
+                if let Err(e) = source.run(producer).await {
+                    tracing::error!(camera = %name, rendition = %suf, "gstreamer source failed: {e}");
+                }
+                name
+            });
+        }
     }
 
     origin.publish_broadcast(&broadcast_path, broadcast.consume());
@@ -218,6 +207,28 @@ async fn camera_loop(
     }
     join_set.abort_all();
     Ok(())
+}
+
+fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
+    hang::catalog::VideoConfig {
+        codec: hang::catalog::H264 {
+            profile: 0x42,
+            constraints: 0xC0,
+            level: 0x1E,
+            inline: true,
+        }
+        .into(),
+        description: None,
+        coded_width: Some(width),
+        coded_height: Some(height),
+        display_ratio_width: None,
+        display_ratio_height: None,
+        bitrate: Some(bitrate_kbps as u64 * 1000),
+        framerate: Some(fps),
+        optimize_for_latency: None,
+        container: hang::catalog::Container::Legacy,
+        jitter: None,
+    }
 }
 
 fn make_client(tls_disable_verify: bool) -> Result<moq_native::Client> {

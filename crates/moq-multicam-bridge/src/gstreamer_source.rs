@@ -11,11 +11,12 @@ pub struct GstreamerSource {
     width: u32,
     height: u32,
     fps: u32,
+    bitrate_kbps: u32,
 }
 
 impl GstreamerSource {
-    pub fn new(width: u32, height: u32, fps: u32) -> Self {
-        Self { width, height, fps }
+    pub fn new(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
+        Self { width, height, fps, bitrate_kbps }
     }
 
     /// Run the GStreamer pipeline and write H.264 frames to the given OrderedProducer.
@@ -25,12 +26,12 @@ impl GstreamerSource {
         let pipeline_str = format!(
             "videotestsrc is-live=true ! \
              video/x-raw,width={w},height={h},framerate={fps}/1 ! \
-             x264enc tune=zerolatency speed-preset=superfast key-int-max={fps} ! \
+             x264enc tune=zerolatency speed-preset=superfast key-int-max={fps} bitrate={br} ! \
              video/x-h264,profile=constrained-baseline ! \
              h264parse config-interval=1 ! \
              video/x-h264,stream-format=byte-stream,alignment=au ! \
              appsink name=sink sync=false emit-signals=false",
-            w = self.width, h = self.height, fps = self.fps,
+            w = self.width, h = self.height, fps = self.fps, br = self.bitrate_kbps,
         );
 
         let pipeline = gstreamer::parse::launch(&pipeline_str)
