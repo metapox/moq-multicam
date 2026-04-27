@@ -26,6 +26,21 @@ services:
       --source gstreamer
       --tls-disable-verify
 
+  # Lightweight publisher using openh264 (no GStreamer required)
+  publisher-openh264:
+    build:
+      context: .
+      target: runtime-openh264
+    depends_on: [relay]
+    profiles: [openh264]
+    command: >
+      publish-fmp4
+      --relay https://relay:4443
+      --camera front --camera rear --camera left --camera right
+      --camera front-left --camera front-right --camera rear-left --camera rear-right
+      --source openh264
+      --tls-disable-verify
+
   web:
     image: node:22-slim
     working_dir: /app

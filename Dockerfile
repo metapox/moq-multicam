@@ -7,7 +7,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_TARGET_DIR=/tmp/cargo-target \
     cargo install moq-relay --version ^0.10 --root /usr/local
 
-# --- Build app ---
+# --- Build app (GStreamer) ---
 FROM rust:1.89-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,7 +22,22 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release -p moq-multicam-cli --features gstreamer \
     && cp target/release/moq-multicam /usr/local/bin/
 
-# --- Runtime stage ---
+# --- Build app (openh264 only, no GStreamer) ---
+FROM rust:1.89-bookworm AS builder-openh264
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target-openh264,id=target-openh264 \
+    CARGO_TARGET_DIR=/app/target-openh264 \
+    cargo build --release -p moq-multicam-cli --features openh264 \
+    && cp /app/target-openh264/release/moq-multicam /usr/local/bin/
+
+# --- Runtime stage (GStreamer) ---
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates ffmpeg \
@@ -30,6 +45,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/bin/moq-multicam /usr/local/bin/
+ENTRYPOINT ["moq-multicam"]
+
+# --- Runtime stage (openh264, lightweight) ---
+FROM debian:bookworm-slim AS runtime-openh264
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder-openh264 /usr/local/bin/moq-multicam /usr/local/bin/
 ENTRYPOINT ["moq-multicam"]
 
 # --- Relay stage ---
