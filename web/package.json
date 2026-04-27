@@ -1,0 +1,14 @@
+{
+  "name": "moq-multicam-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx vite"
+  },
+  "dependencies": {
+    "@moq/watch": "latest"
+  },
+  "devDependencies": {
+    "vite": "^6"
+  }
+}

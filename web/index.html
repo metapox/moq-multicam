@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>moq-multicam viewer</title>
+  <style>
+    body { margin: 0; background: #111; color: #fff; font-family: sans-serif; }
+    h1 { text-align: center; padding: 1rem; margin: 0; font-size: 1.2rem; }
+    .grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; }
+    .cam { background: #222; border-radius: 4px; overflow: hidden; }
+    .cam label { display: block; text-align: center; padding: 4px; font-size: 0.8rem; opacity: 0.7; }
+    moq-watch { display: block; width: 640px; height: 480px; }
+  </style>
+</head>
+<body>
+  <h1>moq-multicam viewer</h1>
+  <div class="grid">
+    <div class="cam">
+      <label>front</label>
+      <moq-watch url="https://localhost:4443/vehicle/truck-01/camera/front"></moq-watch>
+    </div>
+    <div class="cam">
+      <label>rear</label>
+      <moq-watch url="https://localhost:4443/vehicle/truck-01/camera/rear"></moq-watch>
+    </div>
+  </div>
+  <script type="module">
+    import "@moq/watch/ui";
+  </script>
+</body>
+</html>

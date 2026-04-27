@@ -14,9 +14,12 @@ path = "src/main.rs"
 moq-multicam-core = { path = "../moq-multicam-core" }
 moq-multicam-bridge = { path = "../moq-multicam-bridge" }
 moq-native = { workspace = true }
+moq-mux = { workspace = true }
+moq-lite = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 url = "2"
+bytes = "1"

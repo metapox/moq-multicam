@@ -3,6 +3,7 @@ use clap::Parser;
 use url::Url;
 
 mod publish;
+mod publish_fmp4;
 mod subscribe;
 
 #[derive(Parser)]
@@ -14,7 +15,7 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Command {
-    /// Publish test cameras to a relay
+    /// Publish test cameras to a relay (dummy bytes, no video)
     Publish {
         /// Relay URL
         #[arg(long, default_value = "https://localhost:4443")]
@@ -27,6 +28,20 @@ enum Command {
         /// Camera names (comma-separated)
         #[arg(long, default_value = "front,rear")]
         cameras: String,
+
+        /// Disable TLS verification (for local dev)
+        #[arg(long)]
+        tls_disable_verify: bool,
+    },
+    /// Publish fMP4 from stdin to a relay (pipe from ffmpeg)
+    PublishFmp4 {
+        /// Relay URL
+        #[arg(long, default_value = "https://localhost:4443")]
+        relay: Url,
+
+        /// Broadcast path (e.g. vehicle/truck-01/camera/front)
+        #[arg(long)]
+        broadcast: String,
 
         /// Disable TLS verification (for local dev)
         #[arg(long)]
@@ -65,19 +80,18 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Publish {
-            relay,
-            vehicle,
-            cameras,
-            tls_disable_verify,
+            relay, vehicle, cameras, tls_disable_verify,
         } => {
             let cameras = parse_cameras(&cameras);
             publish::run(relay, &vehicle, &cameras, tls_disable_verify).await
         }
+        Command::PublishFmp4 {
+            relay, broadcast, tls_disable_verify,
+        } => {
+            publish_fmp4::run(relay, &broadcast, tls_disable_verify).await
+        }
         Command::Subscribe {
-            relay,
-            vehicle,
-            cameras,
-            tls_disable_verify,
+            relay, vehicle, cameras, tls_disable_verify,
         } => {
             let cameras = parse_cameras(&cameras);
             subscribe::run(relay, &vehicle, &cameras, tls_disable_verify).await
