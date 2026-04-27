@@ -4,7 +4,7 @@ Low-latency multi-camera streaming over [MoQ (Media over QUIC)](https://moq.dev/
 
 Stream multiple cameras to browsers in real-time with sub-second latency, track-level subscribe/unsubscribe, and priority-based bandwidth adaptation.
 
-> **Status**: Phase 0a — Foundation (E2E pipeline working, browser display confirmed)
+> **Status**: Phase 0b complete — GStreamer + direct hang write, 1 Broadcast multi-camera
 
 ## Why
 
@@ -21,121 +21,110 @@ MoQ provides QUIC connection migration (mobile handover resilience), relay-based
 
 ## Quick Start
 
-### Option A: Docker Compose (easiest)
-
 ```bash
 docker compose up
 ```
 
-Open http://localhost:5173 — two test cameras streaming to the browser.
+Open http://localhost:5173 — two test cameras streaming to the browser via GStreamer → MoQ → WebTransport.
 
-### Option B: Manual Setup
+### What's running
 
-#### Prerequisites
-
-- [Rust](https://rustup.rs/) (1.85+)
-- [ffmpeg](https://ffmpeg.org/) (`brew install ffmpeg` / `apt install ffmpeg`)
-- [moq-relay](https://github.com/moq-dev/moq) (`cargo install moq-relay`)
-- [Node.js](https://nodejs.org/) (for the browser viewer)
-
-### 1. Build
-
-```bash
-git clone https://github.com/metapox/moq-multicam.git
-cd moq-multicam
-cargo build -p moq-multicam-cli
-```
-
-### 2. Start the relay
-
-```bash
-moq-relay --server-bind "[::]:4443" \
-  --tls-generate localhost \
-  --tls-disable-verify \
-  --auth-public "" \
-  --web-http-listen "[::]:4443"
-```
-
-### 3. Publish a test camera
-
-```bash
-ffmpeg -hide_banner -v quiet \
-  -f lavfi -i "testsrc=size=640x480:rate=30" \
-  -c:v libx264 -preset ultrafast -tune zerolatency -g 30 \
-  -f mp4 -movflags "cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame" - \
-  | ./target/debug/moq-multicam publish-fmp4 \
-    --broadcast "vehicle/truck-01/camera/front" \
-    --tls-disable-verify
-```
-
-### 4. View in browser
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Open http://localhost:5173 in Chrome.
+| Service | Description |
+|---|---|
+| `relay` | MoQ relay server (QUIC + WebTransport) |
+| `publisher` | GStreamer → H.264 → hang → relay (2 cameras, 1 process) |
+| `web` | Browser viewer (@moq/watch) |
 
 ## Architecture
 
 ```
-Cameras → [moq-multicam-bridge] → WAN (MoQ/QUIC) → [moq-multicam-relay] → Browser (multi-view)
+GStreamer (capture/encode)
+  → hang OrderedProducer (H.264 Annex B direct write)
+  → 1 Broadcast "vehicle/truck-01"
+    ├── Track "camera/front/video"
+    └── Track "camera/rear/video"
+  → relay (QUIC)
+  → browser (WebTransport + WebCodecs)
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full architecture document.
+See [docs/architecture.md](docs/architecture.md) for details.
 
 ### Crates
 
 | Crate | Description |
 |---|---|
 | `moq-multicam-core` | Shared types: track naming, camera config, moq-lite wrapper |
-| `moq-multicam-bridge` | Video source → MoQ publisher (test source, GStreamer in Phase 0b) |
-| `moq-multicam-relay` | Relay server with multi-camera features (wraps moq-relay) |
-| `moq-multicam-cli` | CLI tool (`moq-multicam publish`, `subscribe`, `publish-fmp4`) |
+| `moq-multicam-bridge` | Video source → MoQ publisher (GStreamer, ffmpeg, test source) |
+| `moq-multicam-relay` | Relay server (placeholder, uses moq-relay directly) |
+| `moq-multicam-cli` | CLI: `publish-fmp4`, `publish`, `subscribe` |
 
 ## CLI Usage
 
 ```bash
-# Publish dummy test data (no ffmpeg needed, no video in browser)
-moq-multicam publish --relay https://localhost:4443 --tls-disable-verify
+# Multi-camera with GStreamer (requires gstreamer feature)
+moq-multicam publish-fmp4 --camera front --camera rear --source gstreamer --tls-disable-verify
 
-# Publish fMP4 from ffmpeg (video visible in browser)
+# Multi-camera with ffmpeg (no GStreamer needed)
+moq-multicam publish-fmp4 --camera front --camera rear --source ffmpeg --tls-disable-verify
+
+# Single camera from stdin (backward compatible)
 ffmpeg ... | moq-multicam publish-fmp4 --broadcast "vehicle/truck-01/camera/front" --tls-disable-verify
 
 # Subscribe and log received data
 moq-multicam subscribe --relay https://localhost:4443 --tls-disable-verify
 ```
 
-## Examples
+## Manual Setup
 
-| Example | Description |
-|---|---|
-| `minimal-pubsub` | In-memory pub/sub, no network |
-| `multicam-test-source` | 2 cameras with test source, in-memory |
-| `quic-publish` | Publish to relay over QUIC |
-| `quic-subscribe` | Subscribe from relay over QUIC |
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (1.89+)
+- [moq-relay](https://github.com/moq-dev/moq) (`cargo install moq-relay`)
+- [Node.js](https://nodejs.org/) (for the browser viewer)
+- GStreamer (for `--source gstreamer`), or ffmpeg (for `--source ffmpeg`)
+
+### Build
 
 ```bash
-cargo run -p minimal-pubsub
-cargo run -p multicam-test-source
+# Without GStreamer
+cargo build -p moq-multicam-cli
+
+# With GStreamer
+cargo build -p moq-multicam-cli --features gstreamer
 ```
+
+### Run
+
+```bash
+# Terminal 1: relay
+moq-relay --server-bind "[::]:4443" \
+  --tls-generate localhost --tls-disable-verify \
+  --auth-public "" --web-http-listen "[::]:4443"
+
+# Terminal 2: publisher
+./target/debug/moq-multicam publish-fmp4 \
+  --camera front --camera rear --source ffmpeg --tls-disable-verify
+
+# Terminal 3: browser
+cd web && npm install && npm run dev
+```
+
+Open http://localhost:5173 in Chrome.
 
 ## Tech Stack
 
 - **Rust** + tokio
-- **MoQ**: [moq-lite](https://crates.io/crates/moq-lite) 0.15 (moq-dev/moq)
+- **MoQ**: [moq-lite](https://crates.io/crates/moq-lite) 0.15
 - **QUIC**: quinn (via moq-native)
-- **Media**: hang 0.15 + moq-mux 0.3 (fMP4/CMAF)
-- **Video**: H.264 (GStreamer in Phase 0b)
+- **Media**: [hang](https://crates.io/crates/hang) 0.15 (Container::Legacy, avc3)
+- **Video**: H.264 via GStreamer (x264enc) or ffmpeg
 - **Browser**: @moq/watch + WebTransport + WebCodecs
 
 ## Roadmap
 
-- [x] **Phase 0a**: E2E pipeline with test source → relay → browser
-- [ ] **Phase 0b**: GStreamer integration, 1-process multi-camera
-- [ ] **Phase 1**: Adaptive bitrate, AI plugin system
+- [x] **Phase 0a**: E2E pipeline — test source → relay → browser
+- [x] **Phase 0b**: GStreamer, 1-process multi-camera, direct hang write, error recovery, Docker
+- [ ] **Phase 1**: Adaptive bitrate, AI plugin system, multi-camera viewer UI
 - [ ] **Phase 2**: Autonomous driving teleoperation showcase
 
 ## License
