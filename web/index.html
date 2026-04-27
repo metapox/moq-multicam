@@ -19,9 +19,13 @@
     .priority-badge { position: absolute; top: 2px; right: 2px; font-size: 0.6rem; padding: 1px 4px; border-radius: 2px; pointer-events: none; }
     .priority-badge.focus { background: #4a4; }
     .priority-badge.bg { background: #a84; }
+    #stats { position: fixed; top: 0; right: 0; background: rgba(0,0,0,0.8); padding: 8px 12px; font-size: 0.7rem; font-family: monospace; line-height: 1.4; z-index: 10; border-bottom-left-radius: 6px; min-width: 180px; }
+    #stats .label { color: #888; }
+    #stats .value { color: #4f4; }
   </style>
 </head>
 <body>
+  <div id="stats"></div>
   <div class="layout">
     <h1>moq-multicam viewer</h1>
     <div class="focus-area">
@@ -35,7 +39,7 @@
 
   <script type="module">
     import * as Moq from "@moq/lite";
-    import { Catalog, Container } from "@moq/hang";
+    import { Catalog } from "@moq/hang";
 
     const RELAY_URL = "http://localhost:4443";
     const VEHICLE_ID = "truck-01";
@@ -55,6 +59,7 @@
     const focusCtx = focusCanvas.getContext("2d");
     const focusLabel = document.getElementById("focus-label");
     const thumbStrip = document.getElementById("thumb-strip");
+    const statsEl = document.getElementById("stats");
 
     for (const [i, name] of cameraNames.entries()) {
       const thumbCanvas = document.createElement("canvas");
@@ -71,50 +76,59 @@
 
       const badge = document.createElement("div");
       badge.className = "priority-badge " + (i === 0 ? "focus" : "bg");
-      badge.textContent = i === 0 ? "P0" : "P200";
+      badge.textContent = i === 0 ? "HQ P0" : "LQ P200";
       div.appendChild(badge);
 
       div.addEventListener("click", () => setFocus(i));
       thumbStrip.appendChild(div);
 
-      cameras.push({ name, thumbCanvas, div, badge, decoder: null, consumer: null, broadcast: null, videoConfig: null });
+      cameras.push({
+        name, thumbCanvas, div, badge,
+        decoder: null, consumer: null, broadcast: null, videoConfig: null,
+        // Stats counters
+        frames: 0, bytes: 0, drops: 0, lastFrameTime: 0,
+      });
     }
 
     focusLabel.textContent = cameras[0].name;
 
-    // Start all cameras once connection is established
+    // Connection-level stats
+    let connEstablished = null;
+
     let started = false;
     connection.established.watch(conn => {
       if (!conn || started) return;
       started = true;
+      connEstablished = conn;
       for (const [i, cam] of cameras.entries()) {
-        startCamera(conn, cam, i === 0 ? FOCUS_PRIORITY : BG_PRIORITY);
+        const isFocus = i === 0;
+        startCamera(conn, cam, isFocus ? "video" : "video-low", isFocus ? FOCUS_PRIORITY : BG_PRIORITY);
       }
     });
 
-    async function startCamera(conn, cam, priority) {
+    async function startCamera(conn, cam, trackName, priority) {
       const broadcast = conn.consume(`vehicle/${VEHICLE_ID}/camera/${cam.name}`);
       cam.broadcast = broadcast;
 
       const catalogTrack = broadcast.subscribe("catalog.json", 100);
       const catalog = await Catalog.fetch(catalogTrack);
-      const videoConfig = catalog?.video?.renditions?.["video"];
-      if (!videoConfig) {
+      if (!catalog?.video?.renditions?.["video"]) {
         console.warn(`no video config for ${cam.name}`);
         return;
       }
-      cam.videoConfig = videoConfig;
-
-      subscribeVideo(cam, priority);
+      cam.videoConfig = catalog.video.renditions;
+      subscribeVideo(cam, trackName, priority);
     }
 
-    function subscribeVideo(cam, priority) {
-      if (cam.consumer) cam.consumer.close();
-      if (cam.decoder) cam.decoder.close();
+    function subscribeVideo(cam, trackName, priority) {
+      if (cam.abortCtrl) cam.abortCtrl.abort();
+      if (cam.decoder?.state !== "closed") cam.decoder?.close();
 
-      const track = cam.broadcast.subscribe("video", priority);
-      const consumer = new Container.Legacy.Consumer(track);
-      cam.consumer = consumer;
+      cam.frames = 0;
+      cam.bytes = 0;
+      cam.drops = 0;
+
+      const track = cam.broadcast.subscribe(trackName, priority);
 
       const ctx = cam.thumbCanvas.getContext("2d");
       const decoder = new VideoDecoder({
@@ -122,29 +136,54 @@
           cam.thumbCanvas.width = frame.displayWidth;
           cam.thumbCanvas.height = frame.displayHeight;
           ctx.drawImage(frame, 0, 0);
+          cam.lastFrameTime = performance.now();
           frame.close();
         },
         error(e) { console.error(`decoder error [${cam.name}]:`, e); },
       });
 
       decoder.configure({
-        codec: cam.videoConfig.codec,
-        codedWidth: cam.videoConfig.codedWidth,
-        codedHeight: cam.videoConfig.codedHeight,
+        codec: cam.videoConfig[trackName].codec,
+        codedWidth: cam.videoConfig[trackName].codedWidth,
+        codedHeight: cam.videoConfig[trackName].codedHeight,
         optimizeForLatency: true,
       });
       cam.decoder = decoder;
 
+      // Read groups/frames directly (bypass Container.Legacy.Consumer)
+      const abortCtrl = { aborted: false, abort() { this.aborted = true; track.close(); } };
+      cam.abortCtrl = abortCtrl;
+
       (async () => {
-        for (;;) {
-          const result = await consumer.next();
-          if (!result?.frame) break;
-          if (decoder.state === "closed") break;
-          decoder.decode(new EncodedVideoChunk({
-            type: result.frame.keyframe ? "key" : "delta",
-            timestamp: result.frame.timestamp,
-            data: result.frame.data,
-          }));
+        while (!abortCtrl.aborted) {
+          const group = await track.nextGroupOrdered();
+          if (!group) break;
+
+          let keyframe = true;
+          for (;;) {
+            const raw = await group.readFrame();
+            if (!raw) break;
+            if (abortCtrl.aborted || decoder.state === "closed") break;
+
+            // Decode varint timestamp prefix (same as Container.Legacy format)
+            const [timestamp, data] = Moq.Varint.decode(raw);
+
+            cam.frames++;
+            cam.bytes += data.byteLength;
+
+            if (decoder.decodeQueueSize > 3) {
+              cam.drops++;
+              keyframe = false;
+              continue;
+            }
+
+            decoder.decode(new EncodedVideoChunk({
+              type: keyframe ? "key" : "delta",
+              timestamp,
+              data,
+            }));
+            keyframe = false;
+          }
         }
       })();
     }
@@ -154,17 +193,16 @@
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      // Re-subscribe with swapped priorities
-      if (prev.videoConfig) subscribeVideo(prev, BG_PRIORITY);
-      if (next.videoConfig) subscribeVideo(next, FOCUS_PRIORITY);
+      if (prev.videoConfig) subscribeVideo(prev, "video-low", BG_PRIORITY);
+      if (next.videoConfig) subscribeVideo(next, "video", FOCUS_PRIORITY);
 
       prev.div.classList.remove("active");
       prev.badge.className = "priority-badge bg";
-      prev.badge.textContent = "P200";
+      prev.badge.textContent = "LQ P200";
 
       next.div.classList.add("active");
       next.badge.className = "priority-badge focus";
-      next.badge.textContent = "P0";
+      next.badge.textContent = "HQ P0";
 
       focusLabel.textContent = next.name;
       focusIndex = index;
@@ -181,6 +219,52 @@
       requestAnimationFrame(mirrorFocus);
     }
     requestAnimationFrame(mirrorFocus);
+
+    // Stats UI — update every second
+    let prevStats = cameras.map(() => ({ frames: 0, bytes: 0 }));
+
+    setInterval(() => {
+      const focus = cameras[focusIndex];
+      const now = performance.now();
+
+      // Per-camera FPS and bitrate (delta since last update)
+      const lines = [];
+
+      // Connection stats
+      const rtt = connEstablished?.rtt?.peek?.();
+      const bw = connEstablished?.recvBandwidth?.peek?.();
+      lines.push(`<span class="label">RTT:</span> <span class="value">${rtt != null ? rtt.toFixed(0) + ' ms' : '—'}</span>`);
+      lines.push(`<span class="label">Recv BW:</span> <span class="value">${bw != null ? (bw / 1e6).toFixed(1) + ' Mbps' : '—'}</span>`);
+      lines.push('');
+
+      // Focus camera detail
+      const fp = prevStats[focusIndex];
+      const fFps = focus.frames - fp.frames;
+      const fBitrate = ((focus.bytes - fp.bytes) * 8) / 1000;
+      const fQueue = focus.decoder?.decodeQueueSize ?? 0;
+      const fAge = focus.lastFrameTime ? (now - focus.lastFrameTime).toFixed(0) : '—';
+
+      lines.push(`<span class="label">Focus:</span> <span class="value">${focus.name}</span>`);
+      lines.push(`<span class="label">  FPS:</span> <span class="value">${fFps}</span>`);
+      lines.push(`<span class="label">  Bitrate:</span> <span class="value">${fBitrate.toFixed(0)} kbps</span>`);
+      lines.push(`<span class="label">  Queue:</span> <span class="value">${fQueue}</span>`);
+      lines.push(`<span class="label">  Drops:</span> <span class="value">${focus.drops}</span>`);
+      lines.push(`<span class="label">  Last frame:</span> <span class="value">${fAge} ms ago</span>`);
+      lines.push('');
+
+      // Summary for all cameras
+      let totalFps = 0, totalDrops = 0;
+      for (const [i, cam] of cameras.entries()) {
+        const p = prevStats[i];
+        totalFps += cam.frames - p.frames;
+        totalDrops += cam.drops;
+        prevStats[i] = { frames: cam.frames, bytes: cam.bytes };
+      }
+      lines.push(`<span class="label">Total FPS:</span> <span class="value">${totalFps} (${cameras.length} cams)</span>`);
+      lines.push(`<span class="label">Total drops:</span> <span class="value">${totalDrops}</span>`);
+
+      statsEl.innerHTML = lines.join('<br>');
+    }, 1000);
   </script>
 </body>
 </html>
