@@ -17,51 +17,43 @@ struct Cli {
 enum Command {
     /// Publish test cameras to a relay (dummy bytes, no video)
     Publish {
-        /// Relay URL
         #[arg(long, default_value = "https://localhost:4443")]
         relay: Url,
-
-        /// Vehicle ID
         #[arg(long, default_value = "truck-01")]
         vehicle: String,
-
-        /// Camera names (comma-separated)
         #[arg(long, default_value = "front,rear")]
         cameras: String,
-
-        /// Disable TLS verification (for local dev)
         #[arg(long)]
         tls_disable_verify: bool,
     },
-    /// Publish fMP4 from stdin to a relay (pipe from ffmpeg)
+    /// Publish fMP4 to a relay. Use --broadcast for stdin pipe, or --camera for built-in ffmpeg.
     PublishFmp4 {
-        /// Relay URL
         #[arg(long, default_value = "https://localhost:4443")]
         relay: Url,
 
-        /// Broadcast path (e.g. vehicle/truck-01/camera/front)
-        #[arg(long)]
-        broadcast: String,
+        /// Single camera: broadcast path for stdin pipe (e.g. vehicle/truck-01/camera/front)
+        #[arg(long, conflicts_with_all = ["camera", "vehicle"])]
+        broadcast: Option<String>,
 
-        /// Disable TLS verification (for local dev)
+        /// Multi-camera: camera names (can be repeated). Spawns ffmpeg per camera.
+        #[arg(long)]
+        camera: Vec<String>,
+
+        /// Vehicle ID (used with --camera)
+        #[arg(long, default_value = "truck-01")]
+        vehicle: String,
+
         #[arg(long)]
         tls_disable_verify: bool,
     },
     /// Subscribe to cameras from a relay
     Subscribe {
-        /// Relay URL
         #[arg(long, default_value = "https://localhost:4443")]
         relay: Url,
-
-        /// Vehicle ID
         #[arg(long, default_value = "truck-01")]
         vehicle: String,
-
-        /// Camera names (comma-separated)
         #[arg(long, default_value = "front,rear")]
         cameras: String,
-
-        /// Disable TLS verification (for local dev)
         #[arg(long)]
         tls_disable_verify: bool,
     },
@@ -86,9 +78,23 @@ async fn main() -> Result<()> {
             publish::run(relay, &vehicle, &cameras, tls_disable_verify).await
         }
         Command::PublishFmp4 {
-            relay, broadcast, tls_disable_verify,
+            relay, broadcast, camera, vehicle, tls_disable_verify,
         } => {
-            publish_fmp4::run(relay, &broadcast, tls_disable_verify).await
+            if let Some(broadcast_path) = broadcast {
+                // Stdin pipe mode (backward compatible)
+                publish_fmp4::run_stdin(relay, &broadcast_path, tls_disable_verify).await
+            } else if !camera.is_empty() {
+                // Multi-camera mode with built-in ffmpeg
+                let cameras: Vec<_> = camera.iter().enumerate().map(|(i, name)| {
+                    moq_multicam_core::CameraConfig {
+                        name: name.clone(),
+                        priority: i as u8,
+                    }
+                }).collect();
+                publish_fmp4::run_multicam(relay, &vehicle, &cameras, tls_disable_verify).await
+            } else {
+                anyhow::bail!("specify --broadcast for stdin pipe or --camera for built-in ffmpeg")
+            }
         }
         Command::Subscribe {
             relay, vehicle, cameras, tls_disable_verify,
