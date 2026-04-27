@@ -16,15 +16,15 @@
     .thumb.active { border-color: #4af; }
     .thumb canvas { width: 160px; height: 120px; display: block; }
     .thumb label { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 0.7rem; background: rgba(0,0,0,0.6); padding: 1px; pointer-events: none; }
-    .rendition-badge { position: absolute; top: 2px; right: 2px; font-size: 0.6rem; padding: 1px 4px; border-radius: 2px; pointer-events: none; }
-    .rendition-badge.high { background: #4a4; }
-    .rendition-badge.low { background: #a84; }
+    .priority-badge { position: absolute; top: 2px; right: 2px; font-size: 0.6rem; padding: 1px 4px; border-radius: 2px; pointer-events: none; }
+    .priority-badge.focus { background: #4a4; }
+    .priority-badge.bg { background: #a84; }
   </style>
 </head>
 <body>
   <div class="layout">
     <h1>moq-multicam viewer</h1>
-    <div class="focus-area" id="focus-area">
+    <div class="focus-area">
       <div class="focus-wrapper">
         <canvas id="focus-canvas"></canvas>
         <div class="focus-label" id="focus-label">—</div>
@@ -34,53 +34,33 @@
   </div>
 
   <script type="module">
-    import { Broadcast, Video, Sync } from "@moq/watch";
     import * as Moq from "@moq/lite";
+    import { Catalog, Container } from "@moq/hang";
 
     const RELAY_URL = "http://localhost:4443";
     const VEHICLE_ID = "truck-01";
-    const HIGH_TRACK = "video";
-    const LOW_TRACK = "video-low";
+    const FOCUS_PRIORITY = 0;
+    const BG_PRIORITY = 200;
 
     const params = new URLSearchParams(location.search);
     const cameraNames = params.get("cameras")?.split(",")
       ?? ["front", "rear", "left", "right", "front-left", "front-right", "rear-left", "rear-right"];
 
-    // Shared connection
     const connection = new Moq.Connection.Reload({ url: new URL(RELAY_URL), enabled: true });
 
     const cameras = [];
     let focusIndex = 0;
 
     const focusCanvas = document.getElementById("focus-canvas");
+    const focusCtx = focusCanvas.getContext("2d");
     const focusLabel = document.getElementById("focus-label");
     const thumbStrip = document.getElementById("thumb-strip");
 
     for (const [i, name] of cameraNames.entries()) {
-      const broadcastPath = `vehicle/${VEHICLE_ID}/camera/${name}`;
-
-      const broadcast = new Broadcast({
-        connection: connection.established,
-        announced: connection.announced,
-        name: broadcastPath,
-        enabled: true,
-      });
-
-      const sync = new Sync({ latency: "real-time" });
-
-      const source = new Video.Source(sync, {
-        broadcast,
-        target: { name: i === 0 ? HIGH_TRACK : LOW_TRACK },
-      });
-
-      const decoder = new Video.Decoder(source, { enabled: true });
       const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = 320;
       thumbCanvas.height = 240;
-      // Single renderer per decoder — always renders to thumbnail
-      const renderer = new Video.Renderer(decoder, { canvas: thumbCanvas });
 
-      // Thumbnail UI
       const div = document.createElement("div");
       div.className = "thumb" + (i === 0 ? " active" : "");
       div.appendChild(thumbCanvas);
@@ -90,14 +70,83 @@
       div.appendChild(label);
 
       const badge = document.createElement("div");
-      badge.className = "rendition-badge " + (i === 0 ? "high" : "low");
-      badge.textContent = i === 0 ? "HQ" : "LQ";
+      badge.className = "priority-badge " + (i === 0 ? "focus" : "bg");
+      badge.textContent = i === 0 ? "P0" : "P200";
       div.appendChild(badge);
 
       div.addEventListener("click", () => setFocus(i));
       thumbStrip.appendChild(div);
 
-      cameras.push({ name, broadcast, source, decoder, renderer, thumbCanvas, div, badge });
+      cameras.push({ name, thumbCanvas, div, badge, decoder: null, consumer: null, broadcast: null, videoConfig: null });
+    }
+
+    focusLabel.textContent = cameras[0].name;
+
+    // Start all cameras once connection is established
+    let started = false;
+    connection.established.watch(conn => {
+      if (!conn || started) return;
+      started = true;
+      for (const [i, cam] of cameras.entries()) {
+        startCamera(conn, cam, i === 0 ? FOCUS_PRIORITY : BG_PRIORITY);
+      }
+    });
+
+    async function startCamera(conn, cam, priority) {
+      const broadcast = conn.consume(`vehicle/${VEHICLE_ID}/camera/${cam.name}`);
+      cam.broadcast = broadcast;
+
+      const catalogTrack = broadcast.subscribe("catalog.json", 100);
+      const catalog = await Catalog.fetch(catalogTrack);
+      const videoConfig = catalog?.video?.renditions?.["video"];
+      if (!videoConfig) {
+        console.warn(`no video config for ${cam.name}`);
+        return;
+      }
+      cam.videoConfig = videoConfig;
+
+      subscribeVideo(cam, priority);
+    }
+
+    function subscribeVideo(cam, priority) {
+      if (cam.consumer) cam.consumer.close();
+      if (cam.decoder) cam.decoder.close();
+
+      const track = cam.broadcast.subscribe("video", priority);
+      const consumer = new Container.Legacy.Consumer(track);
+      cam.consumer = consumer;
+
+      const ctx = cam.thumbCanvas.getContext("2d");
+      const decoder = new VideoDecoder({
+        output(frame) {
+          cam.thumbCanvas.width = frame.displayWidth;
+          cam.thumbCanvas.height = frame.displayHeight;
+          ctx.drawImage(frame, 0, 0);
+          frame.close();
+        },
+        error(e) { console.error(`decoder error [${cam.name}]:`, e); },
+      });
+
+      decoder.configure({
+        codec: cam.videoConfig.codec,
+        codedWidth: cam.videoConfig.codedWidth,
+        codedHeight: cam.videoConfig.codedHeight,
+        optimizeForLatency: true,
+      });
+      cam.decoder = decoder;
+
+      (async () => {
+        for (;;) {
+          const result = await consumer.next();
+          if (!result?.frame) break;
+          if (decoder.state === "closed") break;
+          decoder.decode(new EncodedVideoChunk({
+            type: result.frame.keyframe ? "key" : "delta",
+            timestamp: result.frame.timestamp,
+            data: result.frame.data,
+          }));
+        }
+      })();
     }
 
     function setFocus(index) {
@@ -105,24 +154,23 @@
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      // Previous focus → low quality
-      prev.source.target.set({ name: LOW_TRACK });
-      prev.div.classList.remove("active");
-      prev.badge.className = "rendition-badge low";
-      prev.badge.textContent = "LQ";
+      // Re-subscribe with swapped priorities
+      if (prev.videoConfig) subscribeVideo(prev, BG_PRIORITY);
+      if (next.videoConfig) subscribeVideo(next, FOCUS_PRIORITY);
 
-      // New focus → high quality
-      next.source.target.set({ name: HIGH_TRACK });
+      prev.div.classList.remove("active");
+      prev.badge.className = "priority-badge bg";
+      prev.badge.textContent = "P200";
+
       next.div.classList.add("active");
-      next.badge.className = "rendition-badge high";
-      next.badge.textContent = "HQ";
+      next.badge.className = "priority-badge focus";
+      next.badge.textContent = "P0";
 
       focusLabel.textContent = next.name;
       focusIndex = index;
     }
 
-    // Mirror focused camera's thumbnail to focus canvas
-    const focusCtx = focusCanvas.getContext("2d");
+    // Mirror focused camera to focus canvas
     function mirrorFocus() {
       const cam = cameras[focusIndex];
       if (cam?.thumbCanvas.width) {
@@ -133,10 +181,6 @@
       requestAnimationFrame(mirrorFocus);
     }
     requestAnimationFrame(mirrorFocus);
-
-    // Initialize
-    cameras[0].renderer.canvas.set(cameras[0].thumbCanvas);
-    focusLabel.textContent = cameras[0].name;
   </script>
 </body>
 </html>
