@@ -101,9 +101,6 @@ async fn run_multicam_gstreamer(
         ("video-low", 320, 240, 500, 2),
     ];
 
-    // Wait for relay connection before publishing broadcasts
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
     // Publish manifest (camera discovery)
     let manifest_path = format!("vehicle/{}/meta", vehicle_id);
     let mut manifest_broadcast = moq_lite::Broadcast::produce();
@@ -132,40 +129,36 @@ async fn run_multicam_gstreamer(
     tracing::info!(broadcast = %manifest_path, "publishing vehicle manifest");
 
     // Publish each camera as a separate Broadcast with renditions
+    // BroadcastProducer must stay alive — dropping it closes the conducer channel,
+    // causing subscribe_track to fail with Error::Dropped on the relay side.
+    let mut _broadcasts = Vec::new();
+
     for cam in cameras {
         let cam_broadcast_path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
         let mut broadcast = moq_lite::Broadcast::produce();
+        let mut catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
 
-        // Create catalog track manually (CatalogProducer closes the group too early)
-        let mut catalog_track = broadcast.create_track(hang::Catalog::default_track())?;
-
-        // Create video tracks
+        // Create video tracks and populate catalog
         let mut producers = Vec::new();
-        let mut catalog = hang::Catalog::default();
+        {
+            let mut cat = catalog.lock();
+            for &(suffix, w, h, bitrate_kbps, _) in renditions {
+                cat.video.insert(suffix, make_video_config(w, h, bitrate_kbps, 30.0))?;
+            }
+        }
         for &(suffix, w, h, bitrate_kbps, prio_offset) in renditions {
             let track = broadcast.create_track(moq_lite::Track {
                 name: suffix.to_string(),
                 priority: cam.priority + prio_offset,
             })?;
             producers.push((suffix, w, h, bitrate_kbps, hang::container::OrderedProducer::new(track)));
-            catalog.video.insert(suffix, make_video_config(w, h, bitrate_kbps, 30.0))?;
         }
-        let catalog_json = catalog.to_string()?;
-
-        // Write catalog periodically (subscribers need to receive it on join)
-        let mut catalog_track_clone = catalog_track.clone();
-        let catalog_str = catalog_json.clone();
-        join_set.spawn(async move {
-            loop {
-                let Ok(mut group) = catalog_track_clone.append_group() else { break };
-                let _ = group.write_frame(catalog_str.clone());
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            String::from("catalog")
-        });
 
         origin.publish_broadcast(&cam_broadcast_path, broadcast.consume());
         tracing::info!(camera = %cam.name, broadcast = %cam_broadcast_path, "publishing camera broadcast");
+
+        // Keep BroadcastProducer and CatalogProducer alive
+        _broadcasts.push((broadcast, catalog));
 
         // Spawn GStreamer sources
         for (suffix, w, h, bitrate_kbps, producer) in producers {
