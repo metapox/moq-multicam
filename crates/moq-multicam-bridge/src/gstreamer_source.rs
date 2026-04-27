@@ -1,8 +1,7 @@
-//! GStreamer-based video source.
+//! GStreamer-based video source — writes H.264 directly to hang OrderedProducer.
 //!
-//! GStreamer handles video capture and H.264 encoding. The encoded stream
-//! is piped through ffmpeg for CMAF fMP4 muxing (GStreamer's built-in
-//! mp4mux doesn't produce the format moq-mux expects).
+//! No ffmpeg, no import::Fmp4. GStreamer encodes H.264 (Annex B), and we
+//! write it straight into a hang track using Container::Legacy + avc3 (inline SPS/PPS).
 
 use anyhow::{Context, Result};
 use gstreamer::prelude::*;
@@ -19,7 +18,8 @@ impl GstreamerSource {
         Self { width, height, fps }
     }
 
-    pub async fn run(self, mut fmp4: moq_mux::import::Fmp4) -> Result<()> {
+    /// Run the GStreamer pipeline and write H.264 frames to the given OrderedProducer.
+    pub async fn run(self, mut producer: hang::container::OrderedProducer) -> Result<()> {
         gstreamer::init().context("failed to init GStreamer")?;
 
         let pipeline_str = format!(
@@ -46,64 +46,91 @@ impl GstreamerSource {
         pipeline.set_state(gstreamer::State::Playing)
             .context("failed to start pipeline")?;
 
-        tracing::info!("GStreamer pipeline started");
+        tracing::info!("GStreamer pipeline started (direct hang write)");
 
-        // ffmpeg remuxes raw H.264 → CMAF fMP4
-        let mut ffmpeg = std::process::Command::new("ffmpeg")
-            .args([
-                "-hide_banner", "-v", "quiet",
-                "-f", "h264", "-i", "pipe:0",
-                "-c:v", "copy",
-                "-f", "mp4",
-                "-movflags", "cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame",
-                "-flush_packets", "1",
-                "pipe:1",
-            ])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("failed to spawn ffmpeg for remux")?;
-
-        let mut ffmpeg_stdin = ffmpeg.stdin.take().context("no ffmpeg stdin")?;
-        let ffmpeg_stdout = ffmpeg.stdout.take().context("no ffmpeg stdout")?;
-
-        // Thread 1: GStreamer appsink → ffmpeg stdin
-        let writer = std::thread::spawn(move || -> Result<()> {
-            use std::io::Write;
+        let result = tokio::task::spawn_blocking(move || -> Result<()> {
             loop {
                 let sample = match sink.pull_sample() {
                     Ok(s) => s,
-                    Err(_) => break, // EOS
+                    Err(_) => {
+                        tracing::info!("GStreamer EOS");
+                        break;
+                    }
                 };
+
                 let buf = sample.buffer().context("no buffer")?;
+                let pts = buf.pts().map(|p| p.useconds()).unwrap_or(0);
                 let map = buf.map_readable().context("map failed")?;
-                ffmpeg_stdin.write_all(&map)?;
+                let data = map.as_slice();
+
+                if is_keyframe(data) {
+                    producer.keyframe();
+                }
+
+                let frame = hang::container::Frame {
+                    timestamp: hang::container::Timestamp::from_micros(pts)
+                        .context("invalid timestamp")?,
+                    payload: bytes::Bytes::copy_from_slice(data).into(),
+                };
+                producer.write(frame)?;
             }
             Ok(())
-        });
-
-        // Thread 2: ffmpeg stdout → fmp4 decoder
-        let reader = tokio::task::spawn_blocking(move || -> Result<()> {
-            use std::io::Read;
-            let mut reader = std::io::BufReader::new(ffmpeg_stdout);
-            let mut tmp = [0u8; 8192];
-            let mut buffer = bytes::BytesMut::new();
-            loop {
-                let n = reader.read(&mut tmp)?;
-                if n == 0 { break; }
-                buffer.extend_from_slice(&tmp[..n]);
-                fmp4.decode(&mut buffer)?;
-            }
-            Ok(())
-        });
-
-        let result = reader.await?;
+        })
+        .await?;
 
         pipeline.set_state(gstreamer::State::Null).ok();
-        writer.join().map_err(|_| anyhow::anyhow!("writer thread panicked"))??;
-        ffmpeg.wait()?;
-
         result
+    }
+}
+
+/// Check if an Annex B H.264 access unit contains an IDR slice (NAL type 5).
+fn is_keyframe(data: &[u8]) -> bool {
+    let mut i = 0;
+    while i < data.len().saturating_sub(4) {
+        // Look for start codes: 00 00 00 01 or 00 00 01
+        if data[i] == 0 && data[i + 1] == 0 {
+            let (nal_start, sc_len) = if data[i + 2] == 1 {
+                (i + 3, 3)
+            } else if data[i + 2] == 0 && i + 3 < data.len() && data[i + 3] == 1 {
+                (i + 4, 4)
+            } else {
+                i += 1;
+                continue;
+            };
+            if nal_start < data.len() {
+                let nal_type = data[nal_start] & 0x1F;
+                if nal_type == 5 {
+                    return true; // IDR slice
+                }
+            }
+            i += sc_len;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keyframe_detection() {
+        // IDR frame (NAL type 5) with 4-byte start code
+        let idr = [0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB];
+        assert!(is_keyframe(&idr));
+
+        // Non-IDR frame (NAL type 1) with 4-byte start code
+        let non_idr = [0x00, 0x00, 0x00, 0x01, 0x41, 0xAA, 0xBB];
+        assert!(!is_keyframe(&non_idr));
+
+        // SPS (type 7) + PPS (type 8) + IDR (type 5)
+        let sps_pps_idr = [
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x28, // SPS
+            0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x38, 0x80, // PPS
+            0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40, // IDR
+        ];
+        assert!(is_keyframe(&sps_pps_idr));
     }
 }

@@ -10,6 +10,7 @@ license.workspace = true
 moq-multicam-core = { path = "../moq-multicam-core" }
 moq-lite = { workspace = true }
 moq-mux = { workspace = true }
+hang = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
