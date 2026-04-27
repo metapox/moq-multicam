@@ -2,22 +2,32 @@
 
 Low-latency multi-camera streaming over [MoQ (Media over QUIC)](https://moq.dev/).
 
-Stream multiple cameras to browsers in real-time with sub-second latency, track-level subscribe/unsubscribe, and priority-based bandwidth adaptation.
+Stream 8 cameras to browsers in real-time with sub-second latency, per-camera subscribe/unsubscribe, and priority-based bandwidth adaptation.
 
-> **Status**: Phase 0b complete — GStreamer + direct hang write, 1 Broadcast multi-camera
+> **Status**: Phase 1 nearly complete — 8-camera streaming, subscriber priority, rendition switching, stats overlay
 
 ## Why
 
 Existing solutions don't handle **multi-camera × WAN × scalable** well:
 
-| Solution | Limitation |
-|---|---|
-| GStreamer + RTSP | No CDN scaling, poor WAN support |
-| WebRTC (LiveKit) | SFU scaling limits, heavy on edge devices |
-| ROS2 DDS | NAT/firewall issues over WAN, no video compression standard |
-| AWS Kinesis Video | Vendor lock-in, 1-5s latency |
+| Solution | Limitation | moq-multicam |
+|---|---|---|
+| GStreamer + RTSP | No CDN scaling, poor WAN | Relay-based fan-out |
+| WebRTC (LiveKit) | SFU scaling limits | QUIC stream priority |
+| ROS2 DDS | NAT/firewall issues over WAN | WebTransport through firewalls |
+| AWS Kinesis Video | Vendor lock-in, 1-5s latency | Open source, sub-second |
 
 MoQ provides QUIC connection migration (mobile handover resilience), relay-based fan-out (CDN-like scaling), and track-level pub/sub (subscribe only to cameras you need).
+
+## Features
+
+- **8 cameras simultaneous** — one process, one QUIC connection
+- **Broadcast per camera** — independent subscribe/unsubscribe per camera
+- **Subscriber priority** — focus camera P0, background cameras P200; relay prioritizes under bandwidth pressure
+- **Multi-rendition** — HQ 640×480 + LQ 320×240 per camera, switched on focus change
+- **Real-time stats overlay** — RTT, recv bandwidth, per-camera FPS/bitrate, decode queue, frame drops
+- **QUIC auto-reconnect** — survives network transitions (5G↔LTE)
+- **Docker Compose** — one command to run everything
 
 ## Quick Start
 
@@ -25,26 +35,30 @@ MoQ provides QUIC connection migration (mobile handover resilience), relay-based
 docker compose up
 ```
 
-Open http://localhost:5173 — two test cameras streaming to the browser via GStreamer → MoQ → WebTransport.
+Open http://localhost:5173 — 8 test cameras streaming via GStreamer → MoQ → WebTransport → WebCodecs.
+
+Click a thumbnail to switch focus. The focused camera gets high quality (640×480) + priority 0; others get low quality (320×240) + priority 200.
 
 ### What's running
 
 | Service | Description |
 |---|---|
-| `relay` | MoQ relay server (QUIC + WebTransport) |
-| `publisher` | GStreamer → H.264 → hang → relay (2 cameras, 1 process) |
-| `web` | Browser viewer (@moq/watch) |
+| `relay` | [moq-relay](https://github.com/moq-dev/moq) server (QUIC + WebTransport) |
+| `publisher` | GStreamer → H.264 → hang → relay (8 cameras, 1 process) |
+| `web` | Browser viewer (Vite dev server, @moq/lite + WebCodecs) |
 
 ## Architecture
 
 ```
-GStreamer (capture/encode)
+GStreamer (8 cameras × 2 renditions = 16 pipelines)
   → hang OrderedProducer (H.264 Annex B direct write)
-  → 1 Broadcast "vehicle/truck-01"
-    ├── Track "camera/front/video"
-    └── Track "camera/rear/video"
+  → Broadcast per camera:
+      vehicle/truck-01/camera/front  → video, video-low, catalog.json
+      vehicle/truck-01/camera/rear   → video, video-low, catalog.json
+      ...
+      vehicle/truck-01/meta          → manifest (camera discovery)
   → relay (QUIC)
-  → browser (WebTransport + WebCodecs)
+  → browser (WebTransport + @moq/lite + WebCodecs + Canvas 2D)
 ```
 
 See [docs/architecture.md](docs/architecture.md) for details.
@@ -54,31 +68,30 @@ See [docs/architecture.md](docs/architecture.md) for details.
 | Crate | Description |
 |---|---|
 | `moq-multicam-core` | Shared types: track naming, camera config, moq-lite wrapper |
-| `moq-multicam-bridge` | Video source → MoQ publisher (GStreamer, ffmpeg, test source) |
-| `moq-multicam-relay` | Relay server (placeholder, uses moq-relay directly) |
+| `moq-multicam-bridge` | Video source → MoQ publish (GStreamer, ffmpeg, test source) |
 | `moq-multicam-cli` | CLI: `publish-fmp4`, `publish`, `subscribe` |
 
 ## CLI Usage
 
 ```bash
-# Multi-camera with GStreamer (requires gstreamer feature)
-moq-multicam publish-fmp4 --camera front --camera rear --source gstreamer --tls-disable-verify
+# Multi-camera with GStreamer (8 cameras, requires gstreamer feature)
+moq-multicam publish-fmp4 \
+  --camera front --camera rear --camera left --camera right \
+  --camera front-left --camera front-right --camera rear-left --camera rear-right \
+  --source gstreamer --tls-disable-verify
 
-# Multi-camera with ffmpeg (no GStreamer needed)
+# Multi-camera with ffmpeg
 moq-multicam publish-fmp4 --camera front --camera rear --source ffmpeg --tls-disable-verify
 
 # Single camera from stdin (backward compatible)
 ffmpeg ... | moq-multicam publish-fmp4 --broadcast "vehicle/truck-01/camera/front" --tls-disable-verify
-
-# Subscribe and log received data
-moq-multicam subscribe --relay https://localhost:4443 --tls-disable-verify
 ```
 
 ## Manual Setup
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (1.89+)
+- [Rust](https://rustup.rs/) (1.85+)
 - [moq-relay](https://github.com/moq-dev/moq) (`cargo install moq-relay`)
 - [Node.js](https://nodejs.org/) (for the browser viewer)
 - GStreamer (for `--source gstreamer`), or ffmpeg (for `--source ffmpeg`)
@@ -113,19 +126,22 @@ Open http://localhost:5173 in Chrome.
 
 ## Tech Stack
 
-- **Rust** + tokio
-- **MoQ**: [moq-lite](https://crates.io/crates/moq-lite) 0.15
-- **QUIC**: quinn (via moq-native)
-- **Media**: [hang](https://crates.io/crates/hang) 0.15 (Container::Legacy, avc3)
-- **Video**: H.264 via GStreamer (x264enc) or ffmpeg
-- **Browser**: @moq/watch + WebTransport + WebCodecs
+| Layer | Choice |
+|---|---|
+| QUIC | quinn (via moq-native 0.13) |
+| MoQ protocol | moq-lite 0.15 |
+| Media container | hang 0.15 (Container::Legacy) |
+| Video encode | H.264 via GStreamer 0.23 (x264enc) |
+| Browser | @moq/lite + @moq/hang + WebCodecs VideoDecoder + Canvas 2D |
+| Async runtime | tokio |
 
 ## Roadmap
 
 - [x] **Phase 0a**: E2E pipeline — test source → relay → browser
-- [x] **Phase 0b**: GStreamer, 1-process multi-camera, direct hang write, error recovery, Docker
-- [ ] **Phase 1**: Adaptive bitrate, multi-camera viewer UI, AI plugin system
-- [ ] **Phase 2**: Autonomous driving teleoperation showcase
+- [x] **Phase 0b**: GStreamer, multi-camera, direct hang write, error recovery, Docker
+- [x] **Phase 1**: Broadcast per camera, 8 cameras, rendition switching, subscriber priority, stats overlay
+- [ ] **Phase 1**: USB camera support (requires real hardware)
+- [ ] **Phase 2**: Plugin architecture, AI inference, teleoperation control channel
 
 ## License
 
