@@ -21,7 +21,8 @@ services:
     command: >
       publish-fmp4
       --relay https://relay:4443
-      --camera front --camera rear
+      --camera front --camera rear --camera left --camera right
+      --camera front-left --camera front-right --camera rear-left --camera rear-right
       --source gstreamer
       --tls-disable-verify
 

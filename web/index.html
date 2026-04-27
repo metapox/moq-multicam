@@ -6,10 +6,10 @@
   <style>
     body { margin: 0; background: #111; color: #fff; font-family: sans-serif; }
     h1 { text-align: center; padding: 1rem; margin: 0; font-size: 1.2rem; }
-    .grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; padding: 8px; }
     .cam { background: #222; border-radius: 4px; overflow: hidden; }
     .cam label { display: block; text-align: center; padding: 4px; font-size: 0.8rem; opacity: 0.7; }
-    canvas { max-width: 640px; height: auto; }
+    canvas { width: 100%; height: auto; }
   </style>
 </head>
 <body>
@@ -22,14 +22,12 @@
     const RELAY_URL = "http://localhost:4443";
     const VEHICLE_ID = "truck-01";
 
-    // Camera list (static for now; will be replaced by manifest subscription)
-    const cameras = ["front", "rear"];
-
     const grid = document.getElementById("camera-grid");
 
-    for (const cam of cameras) {
+    function addCamera(cam) {
       const div = document.createElement("div");
       div.className = "cam";
+      div.id = `cam-${cam}`;
 
       const label = document.createElement("label");
       label.textContent = cam;
@@ -45,6 +43,36 @@
 
       grid.appendChild(div);
     }
+
+    // Subscribe to vehicle manifest for camera discovery
+    const manifestWatch = document.createElement("moq-watch");
+    manifestWatch.setAttribute("url", RELAY_URL);
+    manifestWatch.setAttribute("name", `vehicle/${VEHICLE_ID}/meta`);
+    manifestWatch.style.display = "none";
+    document.body.appendChild(manifestWatch);
+
+    // Fallback: static camera list if manifest not available after 5s
+    const fallbackCameras = ["front", "rear"];
+    let manifestReceived = false;
+
+    const fallbackTimer = setTimeout(() => {
+      if (!manifestReceived) {
+        console.warn("manifest not received, using fallback camera list");
+        fallbackCameras.forEach(addCamera);
+      }
+    }, 5000);
+
+    // Listen for manifest data via moq-watch message events
+    // For now, use static list since manifest is a custom track (not video)
+    // TODO: subscribe to manifest track directly via moq-lite JS API
+    clearTimeout(fallbackTimer);
+    const cameras = ["front", "rear", "left", "right", "front-left", "front-right", "rear-left", "rear-right"];
+
+    // Only add cameras that are being published (try all, moq-watch handles missing gracefully)
+    // Use URL params to override: ?cameras=front,rear,left,right
+    const params = new URLSearchParams(location.search);
+    const activeCameras = params.get("cameras")?.split(",") ?? cameras;
+    activeCameras.forEach(addCamera);
   </script>
 </body>
 </html>
