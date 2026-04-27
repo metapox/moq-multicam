@@ -10,6 +10,10 @@ license.workspace = true
 name = "moq-multicam"
 path = "src/main.rs"
 
+[features]
+default = []
+gstreamer = ["moq-multicam-bridge/gstreamer"]
+
 [dependencies]
 moq-multicam-core = { path = "../moq-multicam-core" }
 moq-multicam-bridge = { path = "../moq-multicam-bridge" }

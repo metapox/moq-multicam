@@ -26,22 +26,26 @@ enum Command {
         #[arg(long)]
         tls_disable_verify: bool,
     },
-    /// Publish fMP4 to a relay. Use --broadcast for stdin pipe, or --camera for built-in ffmpeg.
+    /// Publish fMP4 to a relay. Use --broadcast for stdin pipe, or --camera for built-in source.
     PublishFmp4 {
         #[arg(long, default_value = "https://localhost:4443")]
         relay: Url,
 
-        /// Single camera: broadcast path for stdin pipe (e.g. vehicle/truck-01/camera/front)
-        #[arg(long, conflicts_with_all = ["camera", "vehicle"])]
+        /// Single camera: broadcast path for stdin pipe
+        #[arg(long, conflicts_with_all = ["camera", "vehicle", "source"])]
         broadcast: Option<String>,
 
-        /// Multi-camera: camera names (can be repeated). Spawns ffmpeg per camera.
+        /// Multi-camera: camera names (can be repeated)
         #[arg(long)]
         camera: Vec<String>,
 
         /// Vehicle ID (used with --camera)
         #[arg(long, default_value = "truck-01")]
         vehicle: String,
+
+        /// Video source backend: ffmpeg or gstreamer
+        #[arg(long, default_value = "ffmpeg")]
+        source: String,
 
         #[arg(long)]
         tls_disable_verify: bool,
@@ -78,22 +82,21 @@ async fn main() -> Result<()> {
             publish::run(relay, &vehicle, &cameras, tls_disable_verify).await
         }
         Command::PublishFmp4 {
-            relay, broadcast, camera, vehicle, tls_disable_verify,
+            relay, broadcast, camera, vehicle, source, tls_disable_verify,
         } => {
             if let Some(broadcast_path) = broadcast {
-                // Stdin pipe mode (backward compatible)
                 publish_fmp4::run_stdin(relay, &broadcast_path, tls_disable_verify).await
             } else if !camera.is_empty() {
-                // Multi-camera mode with built-in ffmpeg
                 let cameras: Vec<_> = camera.iter().enumerate().map(|(i, name)| {
                     moq_multicam_core::CameraConfig {
                         name: name.clone(),
                         priority: i as u8,
                     }
                 }).collect();
-                publish_fmp4::run_multicam(relay, &vehicle, &cameras, tls_disable_verify).await
+                let source_kind = parse_source(&source)?;
+                publish_fmp4::run_multicam(relay, &vehicle, &cameras, source_kind, tls_disable_verify).await
             } else {
-                anyhow::bail!("specify --broadcast for stdin pipe or --camera for built-in ffmpeg")
+                anyhow::bail!("specify --broadcast for stdin pipe or --camera for built-in source")
             }
         }
         Command::Subscribe {
@@ -113,4 +116,15 @@ fn parse_cameras(s: &str) -> Vec<moq_multicam_core::CameraConfig> {
             priority: i as u8,
         })
         .collect()
+}
+
+fn parse_source(s: &str) -> Result<publish_fmp4::SourceKind> {
+    match s {
+        "ffmpeg" => Ok(publish_fmp4::SourceKind::Ffmpeg),
+        #[cfg(feature = "gstreamer")]
+        "gstreamer" | "gst" => Ok(publish_fmp4::SourceKind::Gstreamer),
+        #[cfg(not(feature = "gstreamer"))]
+        "gstreamer" | "gst" => anyhow::bail!("gstreamer support not compiled in (enable 'gstreamer' feature)"),
+        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer)"),
+    }
 }

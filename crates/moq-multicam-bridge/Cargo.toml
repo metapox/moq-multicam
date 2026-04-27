@@ -14,3 +14,15 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 bytes = "1"
+
+[dependencies.gstreamer]
+workspace = true
+optional = true
+
+[dependencies.gstreamer-app]
+workspace = true
+optional = true
+
+[features]
+default = []
+gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

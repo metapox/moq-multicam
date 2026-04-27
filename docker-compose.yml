@@ -21,6 +21,7 @@ services:
       publish-fmp4
       --relay https://relay:4443
       --camera front --camera rear
+      --source gstreamer
       --tls-disable-verify
 
   web:

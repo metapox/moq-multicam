@@ -19,3 +19,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
+
+# GStreamer (optional, behind feature flag)
+gstreamer = "0.23"
+gstreamer-app = "0.23"
