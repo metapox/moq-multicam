@@ -5,74 +5,129 @@
   <title>moq-multicam viewer</title>
   <style>
     body { margin: 0; background: #111; color: #fff; font-family: sans-serif; }
-    h1 { text-align: center; padding: 1rem; margin: 0; font-size: 1.2rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; padding: 8px; }
-    .cam { background: #222; border-radius: 4px; overflow: hidden; }
-    .cam label { display: block; text-align: center; padding: 4px; font-size: 0.8rem; opacity: 0.7; }
-    canvas { width: 100%; height: auto; }
+    h1 { text-align: center; padding: 0.5rem; margin: 0; font-size: 1.2rem; }
+    .layout { display: flex; flex-direction: column; height: 100vh; }
+    .focus-area { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; min-height: 0; }
+    .focus-area canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .focus-label { position: absolute; top: 0.5rem; left: 0.5rem; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; font-size: 0.9rem; }
+    .focus-wrapper { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .thumb-strip { display: flex; gap: 4px; padding: 4px; background: #1a1a1a; overflow-x: auto; }
+    .thumb { cursor: pointer; border: 2px solid transparent; border-radius: 4px; overflow: hidden; flex-shrink: 0; position: relative; }
+    .thumb.active { border-color: #4af; }
+    .thumb canvas { width: 160px; height: 120px; display: block; }
+    .thumb label { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 0.7rem; background: rgba(0,0,0,0.6); padding: 1px; pointer-events: none; }
+    .rendition-badge { position: absolute; top: 2px; right: 2px; font-size: 0.6rem; padding: 1px 4px; border-radius: 2px; pointer-events: none; }
+    .rendition-badge.high { background: #4a4; }
+    .rendition-badge.low { background: #a84; }
   </style>
 </head>
 <body>
-  <h1>moq-multicam viewer</h1>
-  <div class="grid" id="camera-grid"></div>
+  <div class="layout">
+    <h1>moq-multicam viewer</h1>
+    <div class="focus-area" id="focus-area">
+      <div class="focus-wrapper">
+        <canvas id="focus-canvas"></canvas>
+        <div class="focus-label" id="focus-label">—</div>
+      </div>
+    </div>
+    <div class="thumb-strip" id="thumb-strip"></div>
+  </div>
 
   <script type="module">
-    import "@moq/watch/element";
+    import { Broadcast, Video, Sync } from "@moq/watch";
+    import * as Moq from "@moq/lite";
 
     const RELAY_URL = "http://localhost:4443";
     const VEHICLE_ID = "truck-01";
+    const HIGH_TRACK = "video";
+    const LOW_TRACK = "video-low";
 
-    const grid = document.getElementById("camera-grid");
+    const params = new URLSearchParams(location.search);
+    const cameraNames = params.get("cameras")?.split(",")
+      ?? ["front", "rear", "left", "right", "front-left", "front-right", "rear-left", "rear-right"];
 
-    function addCamera(cam) {
+    // Shared connection
+    const connection = new Moq.Connection.Reload({ url: new URL(RELAY_URL), enabled: true });
+
+    const cameras = [];
+    let focusIndex = 0;
+
+    const focusCanvas = document.getElementById("focus-canvas");
+    const focusLabel = document.getElementById("focus-label");
+    const thumbStrip = document.getElementById("thumb-strip");
+
+    for (const [i, name] of cameraNames.entries()) {
+      const broadcastPath = `vehicle/${VEHICLE_ID}/camera/${name}`;
+
+      const broadcast = new Broadcast({
+        connection: connection.established,
+        announced: connection.announced,
+        name: broadcastPath,
+        enabled: true,
+      });
+
+      const sync = new Sync({ latency: "real-time" });
+
+      const source = new Video.Source(sync, {
+        broadcast,
+        target: { name: i === 0 ? HIGH_TRACK : LOW_TRACK },
+      });
+
+      const decoder = new Video.Decoder(source, { enabled: true });
+      const thumbCanvas = document.createElement("canvas");
+      thumbCanvas.width = 320;
+      thumbCanvas.height = 240;
+      const thumbRenderer = new Video.Renderer(decoder, { canvas: thumbCanvas });
+
+      // Thumbnail UI
       const div = document.createElement("div");
-      div.className = "cam";
-      div.id = `cam-${cam}`;
+      div.className = "thumb" + (i === 0 ? " active" : "");
+      div.appendChild(thumbCanvas);
 
       const label = document.createElement("label");
-      label.textContent = cam;
+      label.textContent = name;
       div.appendChild(label);
 
-      const watch = document.createElement("moq-watch");
-      watch.setAttribute("url", RELAY_URL);
-      watch.setAttribute("name", `vehicle/${VEHICLE_ID}/camera/${cam}`);
+      const badge = document.createElement("div");
+      badge.className = "rendition-badge " + (i === 0 ? "high" : "low");
+      badge.textContent = i === 0 ? "HQ" : "LQ";
+      div.appendChild(badge);
 
-      const canvas = document.createElement("canvas");
-      watch.appendChild(canvas);
-      div.appendChild(watch);
+      div.addEventListener("click", () => setFocus(i));
+      thumbStrip.appendChild(div);
 
-      grid.appendChild(div);
+      cameras.push({ name, broadcast, source, decoder, thumbRenderer, thumbCanvas, div, badge });
     }
 
-    // Subscribe to vehicle manifest for camera discovery
-    const manifestWatch = document.createElement("moq-watch");
-    manifestWatch.setAttribute("url", RELAY_URL);
-    manifestWatch.setAttribute("name", `vehicle/${VEHICLE_ID}/meta`);
-    manifestWatch.style.display = "none";
-    document.body.appendChild(manifestWatch);
+    // Focus renderer (separate from thumbnails)
+    let focusRenderer = null;
 
-    // Fallback: static camera list if manifest not available after 5s
-    const fallbackCameras = ["front", "rear"];
-    let manifestReceived = false;
+    function setFocus(index) {
+      const prev = cameras[focusIndex];
+      const next = cameras[index];
 
-    const fallbackTimer = setTimeout(() => {
-      if (!manifestReceived) {
-        console.warn("manifest not received, using fallback camera list");
-        fallbackCameras.forEach(addCamera);
-      }
-    }, 5000);
+      // Previous focus → low quality
+      prev.source.target.set({ name: LOW_TRACK });
+      prev.div.classList.remove("active");
+      prev.badge.className = "rendition-badge low";
+      prev.badge.textContent = "LQ";
 
-    // Listen for manifest data via moq-watch message events
-    // For now, use static list since manifest is a custom track (not video)
-    // TODO: subscribe to manifest track directly via moq-lite JS API
-    clearTimeout(fallbackTimer);
-    const cameras = ["front", "rear", "left", "right", "front-left", "front-right", "rear-left", "rear-right"];
+      // New focus → high quality
+      next.source.target.set({ name: HIGH_TRACK });
+      next.div.classList.add("active");
+      next.badge.className = "rendition-badge high";
+      next.badge.textContent = "HQ";
 
-    // Only add cameras that are being published (try all, moq-watch handles missing gracefully)
-    // Use URL params to override: ?cameras=front,rear,left,right
-    const params = new URLSearchParams(location.search);
-    const activeCameras = params.get("cameras")?.split(",") ?? cameras;
-    activeCameras.forEach(addCamera);
+      // Switch focus renderer
+      if (focusRenderer) focusRenderer.close();
+      focusRenderer = new Video.Renderer(next.decoder, { canvas: focusCanvas });
+
+      focusLabel.textContent = next.name;
+      focusIndex = index;
+    }
+
+    // Initialize focus on first camera
+    setFocus(0);
   </script>
 </body>
 </html>
