@@ -77,7 +77,7 @@
       const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = 320;
       thumbCanvas.height = 240;
-      // Single renderer per decoder — canvas is swapped on focus change
+      // Single renderer per decoder — always renders to thumbnail
       const renderer = new Video.Renderer(decoder, { canvas: thumbCanvas });
 
       // Thumbnail UI
@@ -105,16 +105,14 @@
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      // Previous focus → low quality, render back to thumbnail
+      // Previous focus → low quality
       prev.source.target.set({ name: LOW_TRACK });
-      prev.renderer.canvas.set(prev.thumbCanvas);
       prev.div.classList.remove("active");
       prev.badge.className = "rendition-badge low";
       prev.badge.textContent = "LQ";
 
-      // New focus → high quality, render to focus canvas
+      // New focus → high quality
       next.source.target.set({ name: HIGH_TRACK });
-      next.renderer.canvas.set(focusCanvas);
       next.div.classList.add("active");
       next.badge.className = "rendition-badge high";
       next.badge.textContent = "HQ";
@@ -123,8 +121,21 @@
       focusIndex = index;
     }
 
-    // Initialize: first camera renders to focus canvas
-    cameras[0].renderer.canvas.set(focusCanvas);
+    // Mirror focused camera's thumbnail to focus canvas
+    const focusCtx = focusCanvas.getContext("2d");
+    function mirrorFocus() {
+      const cam = cameras[focusIndex];
+      if (cam?.thumbCanvas.width) {
+        focusCanvas.width = cam.thumbCanvas.width;
+        focusCanvas.height = cam.thumbCanvas.height;
+        focusCtx.drawImage(cam.thumbCanvas, 0, 0);
+      }
+      requestAnimationFrame(mirrorFocus);
+    }
+    requestAnimationFrame(mirrorFocus);
+
+    // Initialize
+    cameras[0].renderer.canvas.set(cameras[0].thumbCanvas);
     focusLabel.textContent = cameras[0].name;
   </script>
 </body>
