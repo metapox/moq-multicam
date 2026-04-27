@@ -117,8 +117,8 @@ async fn run_multicam_gstreamer(
                 hang::catalog::VideoConfig {
                     codec: hang::catalog::H264 {
                         profile: 0x42,
-                        constraints: 0x00,
-                        level: 0x1F,
+                        constraints: 0xC0,
+                        level: 0x1E,
                         inline: true,
                     }
                     .into(),

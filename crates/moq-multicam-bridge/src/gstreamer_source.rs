@@ -25,7 +25,8 @@ impl GstreamerSource {
         let pipeline_str = format!(
             "videotestsrc is-live=true ! \
              video/x-raw,width={w},height={h},framerate={fps}/1 ! \
-             x264enc tune=zerolatency speed-preset=ultrafast key-int-max={fps} ! \
+             x264enc tune=zerolatency speed-preset=superfast key-int-max={fps} ! \
+             video/x-h264,profile=constrained-baseline ! \
              h264parse config-interval=1 ! \
              video/x-h264,stream-format=byte-stream,alignment=au ! \
              appsink name=sink sync=false emit-signals=false",
