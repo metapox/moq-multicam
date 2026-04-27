@@ -77,7 +77,8 @@
       const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = 320;
       thumbCanvas.height = 240;
-      const thumbRenderer = new Video.Renderer(decoder, { canvas: thumbCanvas });
+      // Single renderer per decoder — canvas is swapped on focus change
+      const renderer = new Video.Renderer(decoder, { canvas: thumbCanvas });
 
       // Thumbnail UI
       const div = document.createElement("div");
@@ -96,38 +97,35 @@
       div.addEventListener("click", () => setFocus(i));
       thumbStrip.appendChild(div);
 
-      cameras.push({ name, broadcast, source, decoder, thumbRenderer, thumbCanvas, div, badge });
+      cameras.push({ name, broadcast, source, decoder, renderer, thumbCanvas, div, badge });
     }
 
-    // Focus renderer (separate from thumbnails)
-    let focusRenderer = null;
-
     function setFocus(index) {
+      if (index === focusIndex) return;
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      // Previous focus → low quality
+      // Previous focus → low quality, render back to thumbnail
       prev.source.target.set({ name: LOW_TRACK });
+      prev.renderer.canvas.set(prev.thumbCanvas);
       prev.div.classList.remove("active");
       prev.badge.className = "rendition-badge low";
       prev.badge.textContent = "LQ";
 
-      // New focus → high quality
+      // New focus → high quality, render to focus canvas
       next.source.target.set({ name: HIGH_TRACK });
+      next.renderer.canvas.set(focusCanvas);
       next.div.classList.add("active");
       next.badge.className = "rendition-badge high";
       next.badge.textContent = "HQ";
-
-      // Switch focus renderer
-      if (focusRenderer) focusRenderer.close();
-      focusRenderer = new Video.Renderer(next.decoder, { canvas: focusCanvas });
 
       focusLabel.textContent = next.name;
       focusIndex = index;
     }
 
-    // Initialize focus on first camera
-    setFocus(0);
+    // Initialize: first camera renders to focus canvas
+    cameras[0].renderer.canvas.set(focusCanvas);
+    focusLabel.textContent = cameras[0].name;
   </script>
 </body>
 </html>
