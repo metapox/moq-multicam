@@ -28,7 +28,12 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.v4l]
+workspace = true
+optional = true
+
 [features]
 default = []
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 openh264 = ["dep:openh264"]
+v4l = ["dep:v4l", "dep:openh264"]

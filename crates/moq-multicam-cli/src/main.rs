@@ -129,6 +129,10 @@ fn parse_source(s: &str) -> Result<publish_fmp4::SourceKind> {
         "openh264" => Ok(publish_fmp4::SourceKind::OpenH264),
         #[cfg(not(feature = "openh264"))]
         "openh264" => anyhow::bail!("openh264 support not compiled in (enable 'openh264' feature)"),
-        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer, openh264)"),
+        #[cfg(feature = "v4l")]
+        "v4l" | "v4l2" => Ok(publish_fmp4::SourceKind::V4l),
+        #[cfg(not(feature = "v4l"))]
+        "v4l" | "v4l2" => anyhow::bail!("v4l support not compiled in (enable 'v4l' feature, Linux only)"),
+        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer, openh264, v4l)"),
     }
 }

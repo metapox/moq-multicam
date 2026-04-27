@@ -14,6 +14,7 @@ path = "src/main.rs"
 default = []
 gstreamer = ["moq-multicam-bridge/gstreamer"]
 openh264 = ["moq-multicam-bridge/openh264"]
+v4l = ["moq-multicam-bridge/v4l"]
 
 [dependencies]
 moq-multicam-core = { path = "../moq-multicam-core" }

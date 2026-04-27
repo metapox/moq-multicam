@@ -26,3 +26,6 @@ gstreamer-app = "0.23"
 
 # OpenH264 (optional, behind feature flag)
 openh264 = "0.4"
+
+# V4L2 camera capture (optional, Linux only)
+v4l = "0.14"

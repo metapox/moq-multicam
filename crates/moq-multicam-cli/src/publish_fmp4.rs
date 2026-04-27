@@ -13,7 +13,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use moq_multicam_core::CameraConfig;
-#[cfg(any(feature = "gstreamer", feature = "openh264"))]
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 use moq_multicam_bridge::VideoSource;
 
 /// Video source backend.
@@ -24,6 +24,8 @@ pub enum SourceKind {
     Gstreamer,
     #[cfg(feature = "openh264")]
     OpenH264,
+    #[cfg(feature = "v4l")]
+    V4l,
 }
 
 /// Rendition configuration for adaptive bitrate.
@@ -85,6 +87,8 @@ pub async fn run_multicam(
         SourceKind::Gstreamer => run_multicam_gstreamer(&origin, vehicle_id, cameras, reconnect).await,
         #[cfg(feature = "openh264")]
         SourceKind::OpenH264 => run_multicam_openh264(&origin, vehicle_id, cameras, reconnect).await,
+        #[cfg(feature = "v4l")]
+        SourceKind::V4l => run_multicam_v4l(&origin, vehicle_id, cameras, reconnect).await,
     }
 }
 
@@ -286,8 +290,52 @@ async fn run_multicam_openh264(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// V4L2 mode
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "v4l")]
+async fn run_multicam_v4l(
+    origin: &moq_lite::OriginProducer,
+    vehicle_id: &str,
+    cameras: &[CameraConfig],
+    reconnect: moq_native::Reconnect,
+) -> Result<()> {
+    let mut join_set = JoinSet::new();
+
+    publish_manifest(origin, vehicle_id, cameras)?;
+
+    let mut broadcast_handles = Vec::new();
+
+    // Each camera name maps to a device path: "front" → /dev/video0, etc.
+    // For now, use camera index as device index.
+    for (i, cam) in cameras.iter().enumerate() {
+        let device_path = format!("/dev/video{}", i);
+        let dp = device_path.clone();
+        let handles = publish_camera_with(origin, vehicle_id, cam, &mut join_set, move |r| {
+            moq_multicam_bridge::V4lSource::new(&dp, r.width, r.height, 30, r.bitrate_kbps)
+        })?;
+        broadcast_handles.push(handles);
+    }
+
+    tracing::info!("all cameras publishing (v4l). Press Ctrl+C to stop.");
+
+    loop {
+        tokio::select! {
+            res = reconnect.closed() => { res?; break; }
+            Some(result) = join_set.join_next() => {
+                let cam_name = result?;
+                tracing::warn!(camera = %cam_name, "camera stopped");
+            }
+        }
+    }
+
+    join_set.abort_all();
+    Ok(())
+}
+
 /// Generic camera publisher — works with any VideoSource.
-#[cfg(any(feature = "gstreamer", feature = "openh264"))]
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 fn publish_camera_with<S: VideoSource>(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
