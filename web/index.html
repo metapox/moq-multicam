@@ -14,27 +14,37 @@
 </head>
 <body>
   <h1>moq-multicam viewer</h1>
-  <div class="grid">
-    <div class="cam">
-      <label>front</label>
-      <moq-watch url="http://localhost:4443" name="vehicle/truck-01">
-        <canvas></canvas>
-      </moq-watch>
-    </div>
-    <div class="cam">
-      <label>rear</label>
-      <moq-watch url="http://localhost:4443" name="vehicle/truck-01">
-        <canvas></canvas>
-      </moq-watch>
-    </div>
-  </div>
+  <div class="grid" id="camera-grid"></div>
+
   <script type="module">
-    console.log("script loaded");
-    import("@moq/watch/element").then(() => {
-      console.log("moq-watch element registered:", customElements.get("moq-watch"));
-    }).catch(err => {
-      console.error("import failed:", err);
-    });
+    import "@moq/watch/element";
+
+    const RELAY_URL = "http://localhost:4443";
+    const VEHICLE_ID = "truck-01";
+
+    // Camera list (static for now; will be replaced by manifest subscription)
+    const cameras = ["front", "rear"];
+
+    const grid = document.getElementById("camera-grid");
+
+    for (const cam of cameras) {
+      const div = document.createElement("div");
+      div.className = "cam";
+
+      const label = document.createElement("label");
+      label.textContent = cam;
+      div.appendChild(label);
+
+      const watch = document.createElement("moq-watch");
+      watch.setAttribute("url", RELAY_URL);
+      watch.setAttribute("name", `vehicle/${VEHICLE_ID}/camera/${cam}`);
+
+      const canvas = document.createElement("canvas");
+      watch.appendChild(canvas);
+      div.appendChild(watch);
+
+      grid.appendChild(div);
+    }
   </script>
 </body>
 </html>
