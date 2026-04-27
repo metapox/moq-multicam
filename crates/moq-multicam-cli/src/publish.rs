@@ -3,7 +3,7 @@
 use anyhow::Result;
 use url::Url;
 
-use moq_multicam_bridge::TestSource;
+use moq_multicam_bridge::{TestSource, VideoSource};
 use moq_multicam_core::*;
 
 pub async fn run(
@@ -21,8 +21,9 @@ pub async fn run(
     for (cam, track) in cameras.iter().zip(tracks) {
         let cam_name = cam.name.clone();
         let source = TestSource::new(2, 512, 3);
+        let producer = hang::container::OrderedProducer::new(track);
         tokio::spawn(async move {
-            if let Err(e) = source.run(track).await {
+            if let Err(e) = source.run(producer).await {
                 tracing::warn!(camera = %cam_name, "test source stopped: {e}");
             }
         });

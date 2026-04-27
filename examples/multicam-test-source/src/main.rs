@@ -3,7 +3,7 @@
 //! Publishes dummy video from 2 cameras (front + rear) using core types,
 //! and a subscriber reads both tracks. No network or relay required.
 
-use moq_multicam_bridge::TestSource;
+use moq_multicam_bridge::{TestSource, VideoSource};
 use moq_multicam_core::*;
 
 const VEHICLE_ID: &str = "truck-01";
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         let cam_name = cam.name.clone();
         let source = TestSource::new(30, 512, 5);
         tokio::spawn(async move {
-            if let Err(e) = source.run(track).await {
+            if let Err(e) = source.run(hang::container::OrderedProducer::new(track)).await {
                 tracing::warn!(camera = %cam_name, "test source stopped: {e}");
             }
         });

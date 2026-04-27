@@ -13,6 +13,8 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use moq_multicam_core::CameraConfig;
+#[cfg(feature = "gstreamer")]
+use moq_multicam_bridge::VideoSource;
 
 /// Video source backend.
 #[derive(Clone, Copy, Debug)]
@@ -23,7 +25,6 @@ pub enum SourceKind {
 }
 
 /// Rendition configuration for adaptive bitrate.
-#[cfg(feature = "gstreamer")]
 struct Rendition {
     track_name: &'static str,
     width: u32,
@@ -32,7 +33,6 @@ struct Rendition {
     priority_offset: u8,
 }
 
-#[cfg(feature = "gstreamer")]
 const RENDITIONS: &[Rendition] = &[
     Rendition { track_name: "video", width: 640, height: 480, bitrate_kbps: 2000, priority_offset: 0 },
     Rendition { track_name: "video-low", width: 320, height: 240, bitrate_kbps: 500, priority_offset: 2 },
@@ -195,7 +195,6 @@ async fn run_multicam_gstreamer(
 }
 
 /// Publish vehicle manifest for camera discovery.
-#[cfg(feature = "gstreamer")]
 fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -277,7 +276,6 @@ fn publish_camera(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "gstreamer")]
 fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
     hang::catalog::VideoConfig {
         codec: hang::catalog::H264 {

@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use gstreamer::prelude::*;
 use gstreamer_app::AppSink;
 
+use crate::source::VideoSource;
+
 pub struct GstreamerSource {
     width: u32,
     height: u32,
@@ -18,9 +20,11 @@ impl GstreamerSource {
     pub fn new(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
         Self { width, height, fps, bitrate_kbps }
     }
+}
 
+impl VideoSource for GstreamerSource {
     /// Run the GStreamer pipeline and write H.264 frames to the given OrderedProducer.
-    pub async fn run(self, mut producer: hang::container::OrderedProducer) -> Result<()> {
+    async fn run(self, mut producer: hang::container::OrderedProducer) -> Result<()> {
         gstreamer::init().context("failed to init GStreamer")?;
 
         let pipeline_str = format!(

@@ -4,7 +4,7 @@
 //!   1. Start relay:  moq-relay --server-bind "[::]:4443" --tls-generate localhost --tls-disable-verify --auth-public ""
 //!   2. Run this:     cargo run -p quic-publish
 
-use moq_multicam_bridge::TestSource;
+use moq_multicam_bridge::{TestSource, VideoSource};
 use moq_multicam_core::*;
 
 const VEHICLE_ID: &str = "truck-01";
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         let cam_name = cam.name.clone();
         let source = TestSource::new(2, 512, 3);
         tokio::spawn(async move {
-            if let Err(e) = source.run(track).await {
+            if let Err(e) = source.run(hang::container::OrderedProducer::new(track)).await {
                 tracing::warn!(camera = %cam_name, "test source stopped: {e}");
             }
         });
