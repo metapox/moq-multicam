@@ -124,7 +124,7 @@ Open http://localhost:5173 in Chrome.
 
 - [x] **Phase 0a**: E2E pipeline — test source → relay → browser
 - [x] **Phase 0b**: GStreamer, 1-process multi-camera, direct hang write, error recovery, Docker
-- [ ] **Phase 1**: Adaptive bitrate, AI plugin system, multi-camera viewer UI
+- [ ] **Phase 1**: Adaptive bitrate, multi-camera viewer UI, AI plugin system
 - [ ] **Phase 2**: Autonomous driving teleoperation showcase
 
 ## License
