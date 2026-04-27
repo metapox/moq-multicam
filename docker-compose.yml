@@ -1,0 +1,48 @@
+services:
+  relay:
+    image: ghcr.io/moq-dev/moq/moq-relay:latest
+    ports:
+      - "4443:4443"
+    command: >
+      --server-bind [::]:4443
+      --tls-generate localhost
+      --tls-disable-verify
+      --auth-public ""
+      --web-http-listen [::]:4443
+
+  publish-front:
+    build: .
+    depends_on: [relay]
+    entrypoint: /bin/sh
+    command: >
+      -c "ffmpeg -hide_banner -v quiet
+      -f lavfi -i 'testsrc=size=640x480:rate=30'
+      -c:v libx264 -preset ultrafast -tune zerolatency -g 30
+      -f mp4 -movflags 'cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame' -
+      | moq-multicam publish-fmp4
+      --relay https://relay:4443
+      --broadcast vehicle/truck-01/camera/front
+      --tls-disable-verify"
+
+  publish-rear:
+    build: .
+    depends_on: [relay]
+    entrypoint: /bin/sh
+    command: >
+      -c "ffmpeg -hide_banner -v quiet
+      -f lavfi -i 'testsrc=size=640x480:rate=30:duration=0'
+      -c:v libx264 -preset ultrafast -tune zerolatency -g 30
+      -f mp4 -movflags 'cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame' -
+      | moq-multicam publish-fmp4
+      --relay https://relay:4443
+      --broadcast vehicle/truck-01/camera/rear
+      --tls-disable-verify"
+
+  web:
+    image: node:22-slim
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npx vite --host"
