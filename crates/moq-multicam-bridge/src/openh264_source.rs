@@ -16,11 +16,17 @@ pub struct OpenH264Source {
     height: u32,
     fps: u32,
     bitrate_kbps: u32,
+    camera_index: u8,
 }
 
 impl OpenH264Source {
     pub fn new(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
-        Self { width, height, fps, bitrate_kbps }
+        Self { width, height, fps, bitrate_kbps, camera_index: 0 }
+    }
+
+    pub fn with_index(mut self, index: u8) -> Self {
+        self.camera_index = index;
+        self
     }
 }
 
@@ -38,7 +44,7 @@ impl VideoSource for OpenH264Source {
         tracing::info!(w = self.width, h = self.height, fps = self.fps, "openh264 source started");
 
         loop {
-            let rgb = generate_test_rgb(w, h, frame_num);
+            let rgb = generate_test_rgb(w, h, frame_num, self.camera_index);
             let yuv = YUVBuffer::with_rgb(w, h, &rgb);
 
             let bitstream = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
@@ -70,42 +76,46 @@ impl VideoSource for OpenH264Source {
     }
 }
 
-/// Generate an RGB test pattern — static color bars with a moving indicator line.
-fn generate_test_rgb(w: usize, h: usize, frame: u64) -> Vec<u8> {
+/// Generate an RGB test pattern — unique color per camera with scan line.
+fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8) -> Vec<u8> {
     let mut rgb = vec![0u8; w * h * 3];
+    let (base_r, base_g, base_b) = CAMERA_COLORS[camera_index as usize % CAMERA_COLORS.len()];
 
-    // Static 8 vertical color bars
     for row in 0..h {
         for col in 0..w {
-            let bar = col * 8 / w;
-            let (r, g, b) = COLOR_BARS_RGB[bar];
             let idx = (row * w + col) * 3;
-            rgb[idx] = r;
-            rgb[idx + 1] = g;
-            rgb[idx + 2] = b;
+
+            // Gradient: brighter at top, darker at bottom
+            let brightness = 255 - (row * 180 / h) as u8;
+            rgb[idx] = (base_r as u16 * brightness as u16 / 255) as u8;
+            rgb[idx + 1] = (base_g as u16 * brightness as u16 / 255) as u8;
+            rgb[idx + 2] = (base_b as u16 * brightness as u16 / 255) as u8;
+
+            // Vertical grid lines every 1/4 width
+            if col % (w / 4) < 2 {
+                rgb[idx] = 255; rgb[idx + 1] = 255; rgb[idx + 2] = 255;
+            }
         }
     }
 
-    // Thin horizontal white line that moves down slowly (1 row per frame)
+    // Horizontal scan line
     let line_row = (frame as usize) % h;
     for col in 0..w {
         let idx = (line_row * w + col) * 3;
-        rgb[idx] = 255;
-        rgb[idx + 1] = 255;
-        rgb[idx + 2] = 255;
+        rgb[idx] = 255; rgb[idx + 1] = 255; rgb[idx + 2] = 255;
     }
 
     rgb
 }
 
-// Standard 8-bar color pattern (RGB)
-const COLOR_BARS_RGB: [(u8, u8, u8); 8] = [
-    (255, 255, 255), // white
-    (255, 255, 0),   // yellow
-    (0, 255, 255),   // cyan
-    (0, 255, 0),     // green
-    (255, 0, 255),   // magenta
-    (255, 0, 0),     // red
-    (0, 0, 255),     // blue
-    (0, 0, 0),       // black
+// Distinct colors for up to 8 cameras
+const CAMERA_COLORS: [(u8, u8, u8); 8] = [
+    (66, 133, 244),  // blue
+    (234, 67, 53),   // red
+    (52, 168, 83),   // green
+    (251, 188, 4),   // yellow
+    (171, 71, 188),  // purple
+    (0, 172, 193),   // teal
+    (255, 112, 67),  // orange
+    (158, 158, 158), // gray
 ];

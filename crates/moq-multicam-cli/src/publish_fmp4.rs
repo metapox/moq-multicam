@@ -261,9 +261,11 @@ async fn run_multicam_openh264(
 
     let mut broadcast_handles = Vec::new();
 
-    for cam in cameras {
+    for (i, cam) in cameras.iter().enumerate() {
+        let cam_idx = i as u8;
         let handles = publish_camera_with(origin, vehicle_id, cam, &mut join_set, |r| {
             moq_multicam_bridge::OpenH264Source::new(r.width, r.height, 30, r.bitrate_kbps)
+                .with_index(cam_idx)
         })?;
         broadcast_handles.push(handles);
     }
