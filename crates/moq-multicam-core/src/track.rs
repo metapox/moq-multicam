@@ -16,6 +16,15 @@ pub enum Quality {
     Low,
 }
 
+impl Quality {
+    pub fn track_name(self) -> &'static str {
+        match self {
+            Quality::High => "video",
+            Quality::Low => "video-low",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrackKind {
@@ -25,8 +34,11 @@ pub enum TrackKind {
 
 /// Structured representation of a moq-multicam track path.
 ///
-/// Format: `vehicle/{vehicle_id}/camera/{camera_name}/video[-low]`
-///         `vehicle/{vehicle_id}/meta/{name}`
+/// New design: one Broadcast per camera.
+///   Camera broadcast: `vehicle/{vehicle_id}/camera/{camera_name}`
+///     Tracks: `video`, `video-low`
+///   Meta broadcast: `vehicle/{vehicle_id}/meta`
+///     Tracks: `manifest`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackPath {
     pub vehicle_id: String,
@@ -54,9 +66,24 @@ impl TrackPath {
         }
     }
 
+    /// Broadcast path for this track (used with Origin::publish_broadcast).
+    pub fn broadcast_path(&self) -> String {
+        match self.kind {
+            TrackKind::Camera => format!("vehicle/{}/camera/{}", self.vehicle_id, self.name),
+            TrackKind::Meta => format!("vehicle/{}/meta", self.vehicle_id),
+        }
+    }
+
+    /// Track name within the broadcast.
+    pub fn track_name(&self) -> String {
+        match self.kind {
+            TrackKind::Camera => self.quality.unwrap_or(Quality::High).track_name().to_string(),
+            TrackKind::Meta => self.name.clone(),
+        }
+    }
+
     pub fn parse(path: &str) -> Result<Self, TrackPathError> {
         let parts: Vec<&str> = path.split('/').collect();
-
         let err = || TrackPathError::Invalid(path.into());
 
         if parts.len() < 4 || parts[0] != "vehicle" {
@@ -81,27 +108,6 @@ impl TrackPath {
             _ => Err(err()),
         }
     }
-
-    /// Returns the broadcast path (vehicle-level prefix).
-    pub fn broadcast_path(&self) -> String {
-        format!("vehicle/{}", self.vehicle_id)
-    }
-
-    /// Returns the track name within a broadcast.
-    pub fn track_name(&self) -> String {
-        match self.kind {
-            TrackKind::Camera => {
-                let suffix = match self.quality {
-                    Some(Quality::Low) => "video-low",
-                    _ => "video",
-                };
-                format!("camera/{}/{suffix}", self.name)
-            }
-            TrackKind::Meta => {
-                format!("meta/{}", self.name)
-            }
-        }
-    }
 }
 
 impl fmt::Display for TrackPath {
@@ -117,6 +123,8 @@ mod tests {
     #[test]
     fn camera_high_roundtrip() {
         let path = TrackPath::camera("truck-01", "front", Quality::High);
+        assert_eq!(path.broadcast_path(), "vehicle/truck-01/camera/front");
+        assert_eq!(path.track_name(), "video");
         assert_eq!(path.to_string(), "vehicle/truck-01/camera/front/video");
 
         let parsed = TrackPath::parse(&path.to_string()).unwrap();
@@ -126,6 +134,8 @@ mod tests {
     #[test]
     fn camera_low_roundtrip() {
         let path = TrackPath::camera("truck-01", "rear", Quality::Low);
+        assert_eq!(path.broadcast_path(), "vehicle/truck-01/camera/rear");
+        assert_eq!(path.track_name(), "video-low");
         assert_eq!(path.to_string(), "vehicle/truck-01/camera/rear/video-low");
 
         let parsed = TrackPath::parse(&path.to_string()).unwrap();
@@ -134,26 +144,13 @@ mod tests {
 
     #[test]
     fn meta_roundtrip() {
-        let path = TrackPath::meta("truck-01", "status");
-        assert_eq!(path.to_string(), "vehicle/truck-01/meta/status");
+        let path = TrackPath::meta("truck-01", "manifest");
+        assert_eq!(path.broadcast_path(), "vehicle/truck-01/meta");
+        assert_eq!(path.track_name(), "manifest");
+        assert_eq!(path.to_string(), "vehicle/truck-01/meta/manifest");
 
         let parsed = TrackPath::parse(&path.to_string()).unwrap();
         assert_eq!(parsed, path);
-    }
-
-    #[test]
-    fn broadcast_path() {
-        let path = TrackPath::camera("truck-01", "front", Quality::High);
-        assert_eq!(path.broadcast_path(), "vehicle/truck-01");
-    }
-
-    #[test]
-    fn track_name() {
-        let cam = TrackPath::camera("truck-01", "front", Quality::High);
-        assert_eq!(cam.track_name(), "camera/front/video");
-
-        let meta = TrackPath::meta("truck-01", "detections");
-        assert_eq!(meta.track_name(), "meta/detections");
     }
 
     #[test]

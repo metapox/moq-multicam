@@ -6,7 +6,8 @@
     "dev": "npx vite"
   },
   "dependencies": {
-    "@moq/watch": "latest"
+    "@moq/watch": "^0.2.10",
+    "@moq/lite": "^0.2.2"
   },
   "devDependencies": {
     "vite": "^6"

@@ -12,7 +12,7 @@ use anyhow::Result;
 use tokio::task::JoinSet;
 use url::Url;
 
-use moq_multicam_core::*;
+use moq_multicam_core::CameraConfig;
 
 /// Video source backend.
 #[derive(Clone, Copy, Debug)]
@@ -21,6 +21,22 @@ pub enum SourceKind {
     #[cfg(feature = "gstreamer")]
     Gstreamer,
 }
+
+/// Rendition configuration for adaptive bitrate.
+#[cfg(feature = "gstreamer")]
+struct Rendition {
+    track_name: &'static str,
+    width: u32,
+    height: u32,
+    bitrate_kbps: u32,
+    priority_offset: u8,
+}
+
+#[cfg(feature = "gstreamer")]
+const RENDITIONS: &[Rendition] = &[
+    Rendition { track_name: "video", width: 640, height: 480, bitrate_kbps: 2000, priority_offset: 0 },
+    Rendition { track_name: "video-low", width: 320, height: 240, bitrate_kbps: 500, priority_offset: 2 },
+];
 
 /// Single camera: read fMP4 from stdin (backward compatible).
 pub async fn run_stdin(relay: Url, broadcast_path: &str, tls_disable_verify: bool) -> Result<()> {
@@ -68,7 +84,10 @@ pub async fn run_multicam(
     }
 }
 
-/// Ffmpeg mode: separate Broadcast per camera (import::Fmp4 limitation).
+// ---------------------------------------------------------------------------
+// Ffmpeg mode
+// ---------------------------------------------------------------------------
+
 async fn run_multicam_ffmpeg(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -82,11 +101,63 @@ async fn run_multicam_ffmpeg(
         spawn_ffmpeg_camera(origin, &path, &cam.name, &mut join_set);
     }
 
-    tracing::info!("all cameras publishing (ffmpeg, separate broadcasts). Press Ctrl+C to stop.");
-    camera_loop(origin, vehicle_id, SourceKind::Ffmpeg, reconnect, &mut join_set).await
+    tracing::info!("all cameras publishing (ffmpeg). Press Ctrl+C to stop.");
+    ffmpeg_camera_loop(origin, vehicle_id, reconnect, &mut join_set).await
 }
 
-/// GStreamer mode: separate Broadcast per camera (with renditions) + manifest.
+fn spawn_ffmpeg_camera(
+    origin: &moq_lite::OriginProducer,
+    broadcast_path: &str,
+    cam_name: &str,
+    join_set: &mut JoinSet<String>,
+) {
+    let mut broadcast = moq_lite::Broadcast::produce();
+    let catalog = moq_mux::CatalogProducer::new(&mut broadcast).expect("catalog creation failed");
+    let fmp4 = moq_mux::import::Fmp4::new(
+        broadcast.clone(), catalog,
+        moq_mux::import::Fmp4Config { passthrough: false },
+    );
+
+    origin.publish_broadcast(broadcast_path, broadcast.consume());
+    tracing::info!(camera = %cam_name, broadcast = %broadcast_path, "publishing camera (ffmpeg)");
+
+    let source = moq_multicam_bridge::FfmpegSource::new(640, 480, 30);
+    let name = cam_name.to_string();
+    join_set.spawn(async move {
+        if let Err(e) = source.run(fmp4).await {
+            tracing::error!(camera = %name, "ffmpeg source failed: {e}");
+        }
+        name
+    });
+}
+
+async fn ffmpeg_camera_loop(
+    origin: &moq_lite::OriginProducer,
+    vehicle_id: &str,
+    reconnect: moq_native::Reconnect,
+    join_set: &mut JoinSet<String>,
+) -> Result<()> {
+    loop {
+        tokio::select! {
+            res = reconnect.closed() => { res?; break; }
+            Some(result) = join_set.join_next() => {
+                let cam_name = result?;
+                tracing::warn!(camera = %cam_name, "camera stopped, restarting in 2s...");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let path = format!("vehicle/{}/camera/{}", vehicle_id, cam_name);
+                spawn_ffmpeg_camera(origin, &path, &cam_name, join_set);
+                tracing::info!(camera = %cam_name, "camera restarted");
+            }
+        }
+    }
+    join_set.abort_all();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// GStreamer mode
+// ---------------------------------------------------------------------------
+
 #[cfg(feature = "gstreamer")]
 async fn run_multicam_gstreamer(
     origin: &moq_lite::OriginProducer,
@@ -96,83 +167,15 @@ async fn run_multicam_gstreamer(
 ) -> Result<()> {
     let mut join_set = JoinSet::new();
 
-    let renditions: &[(&str, u32, u32, u32, u8)] = &[
-        ("video", 640, 480, 2000, 0),
-        ("video-low", 320, 240, 500, 2),
-    ];
+    publish_manifest(origin, vehicle_id, cameras)?;
 
-    // Publish manifest (camera discovery)
-    let manifest_path = format!("vehicle/{}/meta", vehicle_id);
-    let mut manifest_broadcast = moq_lite::Broadcast::produce();
-    let manifest_track = manifest_broadcast.create_track(moq_lite::Track {
-        name: "manifest".to_string(),
-        priority: 0,
-    })?;
-
-    let manifest_json = serde_json::json!({
-        "vehicle_id": vehicle_id,
-        "cameras": cameras.iter().map(|c| serde_json::json!({
-            "name": c.name,
-            "broadcast": format!("vehicle/{}/camera/{}", vehicle_id, c.name),
-        })).collect::<Vec<_>>(),
-    });
-
-    // Write manifest as a single group/frame
-    let mut manifest_producer = hang::container::OrderedProducer::new(manifest_track);
-    manifest_producer.keyframe();
-    manifest_producer.write(hang::container::Frame {
-        timestamp: hang::container::Timestamp::from_micros(0)?,
-        payload: bytes::Bytes::from(manifest_json.to_string()).into(),
-    })?;
-
-    origin.publish_broadcast(&manifest_path, manifest_broadcast.consume());
-    tracing::info!(broadcast = %manifest_path, "publishing vehicle manifest");
-
-    // Publish each camera as a separate Broadcast with renditions
     // BroadcastProducer must stay alive — dropping it closes the conducer channel,
     // causing subscribe_track to fail with Error::Dropped on the relay side.
-    let mut _broadcasts = Vec::new();
+    let mut broadcast_handles = Vec::new();
 
     for cam in cameras {
-        let cam_broadcast_path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
-        let mut broadcast = moq_lite::Broadcast::produce();
-        let mut catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
-
-        // Create video tracks and populate catalog
-        let mut producers = Vec::new();
-        {
-            let mut cat = catalog.lock();
-            for &(suffix, w, h, bitrate_kbps, _) in renditions {
-                cat.video.insert(suffix, make_video_config(w, h, bitrate_kbps, 30.0))?;
-            }
-        }
-        for &(suffix, w, h, bitrate_kbps, prio_offset) in renditions {
-            let track = broadcast.create_track(moq_lite::Track {
-                name: suffix.to_string(),
-                priority: cam.priority + prio_offset,
-            })?;
-            producers.push((suffix, w, h, bitrate_kbps, hang::container::OrderedProducer::new(track)));
-        }
-
-        origin.publish_broadcast(&cam_broadcast_path, broadcast.consume());
-        tracing::info!(camera = %cam.name, broadcast = %cam_broadcast_path, "publishing camera broadcast");
-
-        // Keep BroadcastProducer and CatalogProducer alive
-        _broadcasts.push((broadcast, catalog));
-
-        // Spawn GStreamer sources
-        for (suffix, w, h, bitrate_kbps, producer) in producers {
-            tracing::info!(camera = %cam.name, track = %suffix, %w, %h, %bitrate_kbps, "publishing rendition");
-            let source = moq_multicam_bridge::GstreamerSource::new(w, h, 30, bitrate_kbps);
-            let name = cam.name.clone();
-            let suf = suffix.to_string();
-            join_set.spawn(async move {
-                if let Err(e) = source.run(producer).await {
-                    tracing::error!(camera = %name, rendition = %suf, "gstreamer source failed: {e}");
-                }
-                name
-            });
-        }
+        let handles = publish_camera(origin, vehicle_id, cam, &mut join_set)?;
+        broadcast_handles.push(handles);
     }
 
     tracing::info!("all cameras publishing. Press Ctrl+C to stop.");
@@ -191,60 +194,90 @@ async fn run_multicam_gstreamer(
     Ok(())
 }
 
-fn spawn_ffmpeg_camera(
-    origin: &moq_lite::OriginProducer,
-    broadcast_path: &str,
-    cam_name: &str,
-    join_set: &mut JoinSet<String>,
-) {
-    let mut broadcast = moq_lite::Broadcast::produce();
-    let catalog = moq_mux::CatalogProducer::new(&mut broadcast).expect("catalog creation failed");
-    let fmp4 = moq_mux::import::Fmp4::new(
-        broadcast.clone(), catalog,
-        moq_mux::import::Fmp4Config { passthrough: false },
-    );
-
-    origin.publish_broadcast(broadcast_path, broadcast.consume());
-    tracing::info!(camera = %cam_name, broadcast = %broadcast_path, source = ?SourceKind::Ffmpeg, "publishing camera");
-
-    let source = moq_multicam_bridge::FfmpegSource::new(640, 480, 30);
-    let name = cam_name.to_string();
-    join_set.spawn(async move {
-        if let Err(e) = source.run(fmp4).await {
-            tracing::error!(camera = %name, "ffmpeg source failed: {e}");
-        }
-        name
-    });
-}
-
-async fn camera_loop(
+/// Publish vehicle manifest for camera discovery.
+#[cfg(feature = "gstreamer")]
+fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
-    source_kind: SourceKind,
-    reconnect: moq_native::Reconnect,
-    join_set: &mut JoinSet<String>,
+    cameras: &[CameraConfig],
 ) -> Result<()> {
-    loop {
-        tokio::select! {
-            res = reconnect.closed() => { res?; break; }
-            Some(result) = join_set.join_next() => {
-                let cam_name = result?;
-                tracing::warn!(camera = %cam_name, "camera stopped, restarting in 2s...");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                let path = format!("vehicle/{}/camera/{}", vehicle_id, cam_name);
-                match source_kind {
-                    SourceKind::Ffmpeg => spawn_ffmpeg_camera(origin, &path, &cam_name, join_set),
-                    #[cfg(feature = "gstreamer")]
-                    _ => {}
-                }
-                tracing::info!(camera = %cam_name, "camera restarted");
-            }
-        }
-    }
-    join_set.abort_all();
+    let manifest_path = format!("vehicle/{}/meta", vehicle_id);
+    let mut broadcast = moq_lite::Broadcast::produce();
+    let track = broadcast.create_track(moq_lite::Track {
+        name: "manifest".to_string(),
+        priority: 0,
+    })?;
+
+    let manifest = serde_json::json!({
+        "vehicle_id": vehicle_id,
+        "cameras": cameras.iter().map(|c| serde_json::json!({
+            "name": c.name,
+            "broadcast": format!("vehicle/{}/camera/{}", vehicle_id, c.name),
+        })).collect::<Vec<_>>(),
+    });
+
+    let mut producer = hang::container::OrderedProducer::new(track);
+    producer.keyframe();
+    producer.write(hang::container::Frame {
+        timestamp: hang::container::Timestamp::from_micros(0)?,
+        payload: bytes::Bytes::from(manifest.to_string()).into(),
+    })?;
+
+    origin.publish_broadcast(&manifest_path, broadcast.consume());
+    tracing::info!(broadcast = %manifest_path, "publishing vehicle manifest");
     Ok(())
 }
 
+/// Publish a single camera with all renditions. Returns handles to keep alive.
+#[cfg(feature = "gstreamer")]
+fn publish_camera(
+    origin: &moq_lite::OriginProducer,
+    vehicle_id: &str,
+    cam: &CameraConfig,
+    join_set: &mut JoinSet<String>,
+) -> Result<(moq_lite::BroadcastProducer, moq_mux::CatalogProducer)> {
+    let broadcast_path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
+    let mut broadcast = moq_lite::Broadcast::produce();
+    let mut catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
+
+    {
+        let mut cat = catalog.lock();
+        for r in RENDITIONS {
+            cat.video.insert(r.track_name, make_video_config(r.width, r.height, r.bitrate_kbps, 30.0))?;
+        }
+    }
+
+    for r in RENDITIONS {
+        let track = broadcast.create_track(moq_lite::Track {
+            name: r.track_name.to_string(),
+            priority: cam.priority + r.priority_offset,
+        })?;
+        let producer = hang::container::OrderedProducer::new(track);
+
+        tracing::info!(camera = %cam.name, track = %r.track_name, w = %r.width, h = %r.height, bitrate_kbps = %r.bitrate_kbps, "publishing rendition");
+
+        let source = moq_multicam_bridge::GstreamerSource::new(r.width, r.height, 30, r.bitrate_kbps);
+        let name = cam.name.clone();
+        let track_name = r.track_name.to_string();
+        join_set.spawn(async move {
+            if let Err(e) = source.run(producer).await {
+                tracing::error!(camera = %name, rendition = %track_name, "gstreamer source failed: {e}");
+            }
+            name
+        });
+    }
+
+    origin.publish_broadcast(&broadcast_path, broadcast.consume());
+    tracing::info!(camera = %cam.name, broadcast = %broadcast_path, "publishing camera broadcast");
+
+    Ok((broadcast, catalog))
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "gstreamer")]
 fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
     hang::catalog::VideoConfig {
         codec: hang::catalog::H264 {

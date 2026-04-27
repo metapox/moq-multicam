@@ -1,3 +1,5 @@
+//! DEPRECATED: Uses old single-broadcast design. Use the web viewer instead.
+
 use anyhow::Result;
 use url::Url;
 

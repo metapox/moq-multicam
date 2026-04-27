@@ -13,7 +13,3 @@ pub use moq::{
     Origin, OriginConsumer, OriginProducer,
     Path, Track, TrackConsumer, TrackProducer,
 };
-
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}

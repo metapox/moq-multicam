@@ -1,3 +1,5 @@
+//! DEPRECATED: Uses old single-broadcast design. Use publish-fmp4 with --source gstreamer instead.
+
 use anyhow::Result;
 use url::Url;
 

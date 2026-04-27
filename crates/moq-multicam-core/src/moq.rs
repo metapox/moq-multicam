@@ -10,10 +10,10 @@ pub use moq_lite::{
     Path, Track, TrackConsumer, TrackProducer,
 };
 
-use crate::{CameraConfig, Quality, TrackPath};
+use crate::{CameraConfig, Quality};
 
-/// Create a broadcast with one Track per camera (high quality).
-/// Returns the producer and the broadcast path for publishing.
+/// Create a broadcast per camera with a video track.
+/// Returns the producer and tracks for each camera.
 pub fn create_camera_broadcast(
     vehicle_id: &str,
     cameras: &[CameraConfig],
@@ -22,9 +22,8 @@ pub fn create_camera_broadcast(
     let mut tracks = Vec::with_capacity(cameras.len());
 
     for cam in cameras {
-        let path = TrackPath::camera(vehicle_id, &cam.name, Quality::High);
         let track = broadcast.create_track(Track {
-            name: path.track_name(),
+            name: Quality::High.track_name().to_string(),
             priority: cam.priority,
         })?;
         tracks.push(track);
@@ -42,13 +41,10 @@ mod tests {
     fn create_broadcast_with_cameras() {
         let cameras = vec![
             CameraConfig { name: "front".into(), priority: 0 },
-            CameraConfig { name: "rear".into(), priority: 1 },
         ];
 
         let (broadcast, tracks) = create_camera_broadcast("truck-01", &cameras).unwrap();
-        assert_eq!(tracks.len(), 2);
-
-        // Broadcast should be consumable
+        assert_eq!(tracks.len(), 1);
         let _consumer = broadcast.consume();
     }
 }
