@@ -40,6 +40,7 @@ impl VideoSource for OpenH264Source {
         let mut encoder = Encoder::with_config(config)?;
 
         let mut frame_num: u64 = 0;
+        let gop_size = self.fps as u64; // keyframe every second
 
         tracing::info!(w = self.width, h = self.height, fps = self.fps, "openh264 source started");
 
@@ -55,12 +56,11 @@ impl VideoSource for OpenH264Source {
                 Ok((annexb, encoder, ft))
             }).await??;
 
-            let (annexb, enc, frame_type) = bitstream;
+            let (annexb, enc, _frame_type) = bitstream;
             encoder = enc;
 
-            // openh264 decides keyframes internally
-            let is_idr = matches!(frame_type, openh264::encoder::FrameType::IDR);
-            if is_idr {
+            // New Group every GOP (1 second) for proper keyframe intervals
+            if frame_num % gop_size == 0 {
                 producer.keyframe();
             }
 
