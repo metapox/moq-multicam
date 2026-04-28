@@ -76,10 +76,22 @@ pub async fn run_multicam(
     tls_disable_verify: bool,
 ) -> Result<()> {
     let origin = moq_lite::Origin::produce();
+    // Separate origin for subscribing to operator commands
+    let subscribe_origin = moq_lite::Origin::produce();
 
     let client = make_client(tls_disable_verify)?;
     tracing::info!(%relay, "connecting to relay (with auto-reconnect)...");
-    let reconnect = client.with_publish(origin.consume()).reconnect(relay);
+
+    let reconnect = client
+        .with_publish(origin.consume())
+        .with_consume(subscribe_origin.clone())
+        .reconnect(relay);
+
+    // Subscribe to command track from operator
+    let vehicle = vehicle_id.to_string();
+    tokio::spawn(async move {
+        subscribe_commands(subscribe_origin, &vehicle).await;
+    });
 
     match source_kind {
         SourceKind::Ffmpeg => run_multicam_ffmpeg(&origin, vehicle_id, cameras, reconnect).await,
@@ -406,6 +418,60 @@ fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> ha
     }
 }
 
+
+/// Subscribe to operator commands and log them.
+async fn subscribe_commands(origin: moq_lite::OriginProducer, vehicle_id: &str) {
+    let control_path = format!("vehicle/{}/control", vehicle_id);
+    let path: moq_lite::Path<'_> = control_path.as_str().into();
+
+    tracing::info!(path = %control_path, "waiting for operator commands...");
+
+    let mut consumer = match origin.consume_only(&[path]) {
+        Some(c) => c,
+        None => { tracing::warn!("failed to consume control path"); return; }
+    };
+
+    tracing::info!("waiting for announced broadcasts...");
+
+    while let Some((announced_path, maybe_broadcast)) = consumer.announced().await {
+        tracing::info!(path = %announced_path, has_broadcast = maybe_broadcast.is_some(), "announced");
+        let broadcast = match maybe_broadcast {
+            Some(b) => b,
+            None => continue,
+        };
+
+        let mut track = match broadcast.subscribe_track(&moq_lite::Track {
+            name: "command".to_string(),
+            priority: 0,
+        }) {
+            Ok(t) => t,
+            Err(e) => { tracing::warn!("failed to subscribe command track: {e}"); continue; }
+        };
+
+        tracing::info!("operator connected, receiving commands");
+
+        loop {
+            match track.recv_group().await {
+                Ok(Some(mut group)) => {
+                    while let Ok(Some(frame)) = group.read_frame().await {
+                        match serde_json::from_slice::<serde_json::Value>(&frame) {
+                            Ok(cmd) => tracing::info!(command = %cmd, "received operator command"),
+                            Err(e) => tracing::warn!("invalid command JSON: {e}"),
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("operator disconnected");
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("command read error: {e}");
+                    break;
+                }
+            }
+        }
+    }
+}
 fn make_client(tls_disable_verify: bool) -> Result<moq_native::Client> {
     let mut config = moq_native::ClientConfig::default();
     if tls_disable_verify {

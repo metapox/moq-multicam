@@ -271,6 +271,36 @@
 
       statsEl.innerHTML = lines.join('<br>');
     }, 1000);
+
+    // --- Teleoperation control channel ---
+    let commandTrack = null;
+
+    connection.established.watch(conn => {
+      if (!conn || commandTrack) return;
+      const broadcast = new Moq.Broadcast();
+      conn.publish(`vehicle/${VEHICLE_ID}/control`, broadcast);
+      commandTrack = broadcast.subscribe("command", 0);
+    });
+
+    const KEYS = {
+      ArrowUp: "throttle", ArrowDown: "brake",
+      ArrowLeft: "steer_left", ArrowRight: "steer_right",
+      " ": "emergency_stop",
+    };
+
+    document.addEventListener("keydown", (e) => {
+      const cmd = KEYS[e.key];
+      if (!cmd || !commandTrack) return;
+      e.preventDefault();
+      commandTrack.writeJson({ type: cmd, value: 1, ts: Date.now() });
+    });
+
+    document.addEventListener("keyup", (e) => {
+      const cmd = KEYS[e.key];
+      if (!cmd || !commandTrack) return;
+      e.preventDefault();
+      commandTrack.writeJson({ type: cmd, value: 0, ts: Date.now() });
+    });
   </script>
 </body>
 </html>
