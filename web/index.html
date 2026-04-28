@@ -150,7 +150,6 @@
       });
       cam.decoder = decoder;
 
-      // Read groups/frames directly (bypass Container.Legacy.Consumer)
       const abortCtrl = { aborted: false, abort() { this.aborted = true; track.close(); } };
       cam.abortCtrl = abortCtrl;
 
@@ -165,7 +164,6 @@
             if (!raw) break;
             if (abortCtrl.aborted || decoder.state === "closed") break;
 
-            // Decode varint timestamp prefix (same as Container.Legacy format)
             const [timestamp, data] = Moq.Varint.decode(raw);
 
             cam.frames++;

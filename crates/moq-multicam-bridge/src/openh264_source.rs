@@ -48,7 +48,13 @@ impl VideoSource for OpenH264Source {
             let rgb = generate_test_rgb(w, h, frame_num, self.camera_index);
             let yuv = YUVBuffer::with_rgb(w, h, &rgb);
 
+            let is_gop_start = frame_num % gop_size == 0;
+
             let bitstream = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
+                // Force IDR at GOP boundary
+                if is_gop_start {
+                    unsafe { encoder.raw_api().force_intra_frame(true); }
+                }
                 let bs = encoder.encode(&yuv)?;
                 let annexb = bs.to_vec();
                 let ft = bs.frame_type();
@@ -56,11 +62,11 @@ impl VideoSource for OpenH264Source {
                 Ok((annexb, encoder, ft))
             }).await??;
 
-            let (annexb, enc, _frame_type) = bitstream;
+            let (annexb, enc, frame_type) = bitstream;
             encoder = enc;
 
-            // New Group every GOP (1 second) for proper keyframe intervals
-            if frame_num % gop_size == 0 {
+            // Start new Group on actual IDR frames
+            if matches!(frame_type, openh264::encoder::FrameType::IDR) {
                 producer.keyframe();
             }
 
