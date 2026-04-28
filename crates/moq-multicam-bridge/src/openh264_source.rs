@@ -45,7 +45,11 @@ impl VideoSource for OpenH264Source {
         tracing::info!(w = self.width, h = self.height, fps = self.fps, "openh264 source started");
 
         loop {
-            let rgb = generate_test_rgb(w, h, frame_num, self.camera_index);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let rgb = generate_test_rgb(w, h, frame_num, self.camera_index, now_ms);
             let yuv = YUVBuffer::with_rgb(w, h, &rgb);
 
             let is_gop_start = frame_num % gop_size == 0;
@@ -82,8 +86,8 @@ impl VideoSource for OpenH264Source {
     }
 }
 
-/// Generate an RGB test pattern — unique color per camera with scan line.
-fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8) -> Vec<u8> {
+/// Generate an RGB test pattern — unique color per camera with scan line and timestamp.
+fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8, timestamp_ms: u64) -> Vec<u8> {
     let mut rgb = vec![0u8; w * h * 3];
     let (base_r, base_g, base_b) = CAMERA_COLORS[camera_index as usize % CAMERA_COLORS.len()];
 
@@ -102,6 +106,17 @@ fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8) -> Vec<u8
                 rgb[idx] = 255; rgb[idx + 1] = 255; rgb[idx + 2] = 255;
             }
         }
+    }
+
+    // Embed wall-clock timestamp (ms) as binary pixels in top-left 48 pixels.
+    // Each pixel: white (255) = bit 1, black (0) = bit 0.
+    // 48 bits covers ~8900 years of milliseconds.
+    for bit in 0..48.min(w) {
+        let val = if (timestamp_ms >> (47 - bit)) & 1 == 1 { 255u8 } else { 0u8 };
+        let idx = bit * 3;
+        rgb[idx] = val;
+        rgb[idx + 1] = val;
+        rgb[idx + 2] = val;
     }
 
     // Horizontal scan line

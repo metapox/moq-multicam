@@ -87,7 +87,7 @@
         name, thumbCanvas, div, badge,
         decoder: null, consumer: null, broadcast: null, videoConfig: null,
         // Stats counters
-        frames: 0, bytes: 0, drops: 0, lastFrameTime: 0,
+        frames: 0, bytes: 0, drops: 0, lastFrameTime: 0, latency: null,
       });
     }
 
@@ -140,6 +140,15 @@
           cam.thumbCanvas.height = frame.displayHeight;
           ctx.drawImage(frame, 0, 0);
           cam.lastFrameTime = performance.now();
+
+          // Read embedded timestamp from top-left 48 pixels
+          const pixels = ctx.getImageData(0, 0, 48, 1).data;
+          let ts = 0;
+          for (let i = 0; i < 48; i++) {
+            ts = ts * 2 + (pixels[i * 4] > 128 ? 1 : 0);
+          }
+          if (ts > 0) cam.latency = Date.now() - ts;
+
           frame.close();
         },
         error(e) { console.error(`decoder error [${cam.name}]:`, e); },
@@ -246,6 +255,7 @@
       lines.push(`<span class="label">  Queue:</span> <span class="value">${fQueue}</span>`);
       lines.push(`<span class="label">  Drops:</span> <span class="value">${focus.drops}</span>`);
       lines.push(`<span class="label">  Last frame:</span> <span class="value">${fAge} ms ago</span>`);
+      lines.push(`<span class="label">  E2E latency:</span> <span class="value">${focus.latency != null ? focus.latency + ' ms' : '—'}</span>`);
       lines.push('');
 
       // Summary for all cameras
