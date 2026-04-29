@@ -29,6 +29,7 @@ pub enum SourceKind {
 }
 
 /// Rendition configuration for adaptive bitrate.
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 struct Rendition {
     track_name: &'static str,
     width: u32,
@@ -37,6 +38,7 @@ struct Rendition {
     priority_offset: u8,
 }
 
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 const RENDITIONS: &[Rendition] = &[
     Rendition { track_name: "video", width: 640, height: 480, bitrate_kbps: 2000, priority_offset: 0 },
     Rendition { track_name: "video-low", width: 320, height: 240, bitrate_kbps: 500, priority_offset: 2 },
@@ -213,6 +215,7 @@ async fn run_multicam_gstreamer(
 }
 
 /// Publish vehicle manifest for camera discovery.
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -234,7 +237,7 @@ fn publish_manifest(
     });
 
     let mut producer = hang::container::OrderedProducer::new(track);
-    producer.keyframe();
+    let _ = producer.keyframe();
     producer.write(hang::container::Frame {
         timestamp: hang::container::Timestamp::from_micros(0)?,
         payload: bytes::Bytes::from(manifest.to_string()).into(),
@@ -394,6 +397,7 @@ fn publish_camera_with<S: VideoSource>(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
 fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
     hang::catalog::VideoConfig {
         codec: hang::catalog::H264 {

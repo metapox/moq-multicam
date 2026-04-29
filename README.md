@@ -4,7 +4,7 @@ Low-latency multi-camera streaming over [MoQ (Media over QUIC)](https://moq.dev/
 
 Stream 8 cameras to browsers in real-time with sub-second latency, per-camera subscribe/unsubscribe, and priority-based bandwidth adaptation.
 
-> **Status**: Phase 1 nearly complete — 8-camera streaming, subscriber priority, rendition switching, stats overlay
+> **Status**: Phase 2 in progress — teleoperation control channel, E2E latency measurement, 8-camera streaming with priority-based bandwidth adaptation
 
 ## Why
 
@@ -25,6 +25,8 @@ MoQ provides QUIC connection migration (mobile handover resilience), relay-based
 - **Broadcast per camera** — independent subscribe/unsubscribe per camera
 - **Subscriber priority** — focus camera P0, background cameras P200; relay prioritizes under bandwidth pressure
 - **Multi-rendition** — HQ 640×480 + LQ 320×240 per camera, switched on focus change
+- **Teleoperation control channel** — browser → vehicle bidirectional commands over the same QUIC connection
+- **E2E latency measurement** — pixel-embedded timestamps for glass-to-glass latency tracking
 - **Real-time stats overlay** — RTT, recv bandwidth, per-camera FPS/bitrate, decode queue, frame drops
 - **QUIC auto-reconnect** — survives network transitions (5G↔LTE)
 - **Docker Compose** — one command to run everything
@@ -57,6 +59,7 @@ GStreamer (8 cameras × 2 renditions = 16 pipelines)
       vehicle/truck-01/camera/rear   → video, video-low, catalog.json
       ...
       vehicle/truck-01/meta          → manifest (camera discovery)
+      vehicle/truck-01/control       → command (operator → vehicle)
   → relay (QUIC)
   → browser (WebTransport + @moq/lite + WebCodecs + Canvas 2D)
 ```
@@ -141,7 +144,8 @@ Open http://localhost:5173 in Chrome.
 - [x] **Phase 0b**: GStreamer, multi-camera, direct hang write, error recovery, Docker
 - [x] **Phase 1**: Broadcast per camera, 8 cameras, rendition switching, subscriber priority, stats overlay
 - [ ] **Phase 1**: USB camera support (requires real hardware)
-- [ ] **Phase 2**: Plugin architecture, AI inference, teleoperation control channel
+- [x] **Phase 2**: E2E latency measurement, teleoperation control channel
+- [ ] **Phase 2**: Bandwidth adaptation demo, AI inference plugin, demo video, CI, tutorial
 
 ## License
 

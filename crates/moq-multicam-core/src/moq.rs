@@ -15,7 +15,7 @@ use crate::{CameraConfig, Quality};
 /// Create a broadcast per camera with a video track.
 /// Returns the producer and tracks for each camera.
 pub fn create_camera_broadcast(
-    vehicle_id: &str,
+    _vehicle_id: &str,
     cameras: &[CameraConfig],
 ) -> anyhow::Result<(BroadcastProducer, Vec<TrackProducer>)> {
     let mut broadcast = Broadcast::produce();

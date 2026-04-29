@@ -251,7 +251,7 @@ vehicle/{vehicle_id}/camera/{camera_name}/video       # HQ rendition
 vehicle/{vehicle_id}/camera/{camera_name}/video-low   # LQ rendition
 vehicle/{vehicle_id}/camera/{camera_name}/catalog.json # Codec metadata
 vehicle/{vehicle_id}/meta/manifest                    # Camera discovery
-vehicle/{vehicle_id}/control/command                  # Operator commands (Phase 2+)
+vehicle/{vehicle_id}/control/command                  # Operator commands
 ```
 
 Note: The full path `vehicle/truck-01/camera/front/video` is composed of
@@ -259,15 +259,42 @@ the Broadcast path (`vehicle/truck-01/camera/front`) and the Track name
 (`video`). In the MoQ protocol, these are separate — the Broadcast path
 is used for announce/consume, and the Track name is used for subscribe.
 
-## Bidirectional Communication (Phase 2+)
+## Bidirectional Communication
 
 ```
 Video:    bridge ──publish──→ relay ──subscribe──→ browser
 Control:  browser ──publish──→ relay ──subscribe──→ bridge
 ```
 
-moq-lite pub/sub is bidirectional by design. Control commands will use a
-dedicated Track within a control Broadcast.
+Both directions share a single QUIC connection per endpoint. The bridge
+uses `with_publish` + `with_consume` on the same moq-native client, and
+the browser uses `conn.publish()` + `conn.consume()` on the same
+WebTransport session.
+
+### Control Channel
+
+The browser publishes a `vehicle/{id}/control` Broadcast with a `command`
+Track. Keyboard input is serialized as JSON and written via
+`track.writeJson()`:
+
+```json
+{ "type": "throttle", "value": 1, "ts": 1714380000000 }
+```
+
+The bridge subscribes to this Broadcast via `consume_only()` +
+`announced()` + `subscribe_track()`, then reads commands with
+`recv_group()` / `read_frame()`.
+
+A `SharedBroadcast` subclass ensures the browser-created Track and the
+relay-subscribed Track are the same object — `Broadcast.subscribe()`
+normally creates a new Track each call, which would break the data flow.
+
+### E2E Latency Measurement
+
+The publisher embeds a timestamp in the test pattern pixels. The browser
+reads the pixels back via `getImageData()` and computes glass-to-glass
+latency. This works without clock synchronization because both timestamps
+use the same wall clock when running locally (Docker Compose).
 
 ## TLS and Certificates
 
@@ -281,7 +308,6 @@ dedicated Track within a control Broadcast.
 
 - No authentication (open relay)
 - No recording/playback
-- Unidirectional only (no operator → vehicle commands yet)
 - Fixed bitrate on publisher side (subscriber-side rendition switching works)
 - USB camera support not yet tested (GStreamer test sources only)
 - No adaptive bitrate on publisher (publisher always sends both renditions)

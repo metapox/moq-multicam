@@ -30,16 +30,16 @@ impl VideoSource for TestSource {
         let mut pts: u64 = 0;
 
         loop {
-            producer.keyframe();
+            let _ = producer.keyframe();
 
             for i in 0..self.gop_size {
                 let tag = if i == 0 { b'I' } else { b'P' };
                 let payload = Bytes::from(vec![tag; self.frame_size]);
-                producer.write(hang::container::Frame {
+                let _ = producer.write(hang::container::Frame {
                     timestamp: hang::container::Timestamp::from_micros(pts)?,
                     payload: payload.into(),
-                })?;
-                pts += (1_000_000 / self.fps as u64);
+                });
+                pts += 1_000_000 / self.fps as u64;
                 tokio::time::sleep(frame_interval).await;
             }
         }
