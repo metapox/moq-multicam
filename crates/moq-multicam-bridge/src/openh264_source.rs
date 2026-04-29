@@ -15,13 +15,13 @@ pub struct OpenH264Source {
     width: u32,
     height: u32,
     fps: u32,
-    bitrate_kbps: u32,
+    _bitrate_kbps: u32,
     camera_index: u8,
 }
 
 impl OpenH264Source {
     pub fn new(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
-        Self { width, height, fps, bitrate_kbps, camera_index: 0 }
+        Self { width, height, fps, _bitrate_kbps: bitrate_kbps, camera_index: 0 }
     }
 
     pub fn with_index(mut self, index: u8) -> Self {
@@ -71,7 +71,7 @@ impl VideoSource for OpenH264Source {
 
             // Start new Group on actual IDR frames
             if matches!(frame_type, openh264::encoder::FrameType::IDR) {
-                producer.keyframe();
+                let _ = producer.keyframe();
             }
 
             let pts = frame_num * 1_000_000 / self.fps as u64;
