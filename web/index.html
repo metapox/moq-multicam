@@ -275,11 +275,27 @@
     // --- Teleoperation control channel ---
     let commandTrack = null;
 
+    // Broadcast subclass that reuses existing tracks by name.
+    // When the browser creates a Track and the relay later subscribes,
+    // Publisher.runSubscribe() calls broadcast.subscribe() again —
+    // this ensures it gets the SAME Track the browser writes to.
+    class SharedBroadcast extends Moq.Broadcast {
+      #tracks = new Map();
+      subscribe(name, priority) {
+        const existing = this.#tracks.get(name);
+        if (existing) return existing;
+        const track = super.subscribe(name, priority);
+        this.#tracks.set(name, track);
+        return track;
+      }
+    }
+
     connection.established.watch(conn => {
       if (!conn || commandTrack) return;
-      const broadcast = new Moq.Broadcast();
+      const broadcast = new SharedBroadcast();
       conn.publish(`vehicle/${VEHICLE_ID}/control`, broadcast);
       commandTrack = broadcast.subscribe("command", 0);
+      console.log("teleop: control channel ready");
     });
 
     const KEYS = {

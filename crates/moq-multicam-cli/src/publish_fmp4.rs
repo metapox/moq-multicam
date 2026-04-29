@@ -76,7 +76,6 @@ pub async fn run_multicam(
     tls_disable_verify: bool,
 ) -> Result<()> {
     let origin = moq_lite::Origin::produce();
-    // Separate origin for subscribing to operator commands
     let subscribe_origin = moq_lite::Origin::produce();
 
     let client = make_client(tls_disable_verify)?;
@@ -87,7 +86,6 @@ pub async fn run_multicam(
         .with_consume(subscribe_origin.clone())
         .reconnect(relay);
 
-    // Subscribe to command track from operator
     let vehicle = vehicle_id.to_string();
     tokio::spawn(async move {
         subscribe_commands(subscribe_origin, &vehicle).await;
