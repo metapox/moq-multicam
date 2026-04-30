@@ -1,4 +1,4 @@
-//! OpenH264-based video source — lightweight H.264 encoding without GStreamer.
+//! OpenH264-based video source — lightweight H.264 encoding.
 //!
 //! Generates a color-cycling test pattern, encodes with openh264, and writes
 //! H.264 Annex B NAL units to a hang OrderedProducer.

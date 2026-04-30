@@ -1,10 +1,10 @@
 //! Publish video to a relay — single camera (stdin fMP4) or multi-camera.
 //!
 //! Single camera (stdin pipe, backward compatible):
-//!   ffmpeg ... | moq-multicam publish-fmp4 --broadcast vehicle/truck-01/camera/front
+//!   ffmpeg ... | moq-multicam publish --broadcast vehicle/truck-01/camera/front
 //!
 //! Multi-camera:
-//!   moq-multicam publish-fmp4 --camera front --camera rear --source gstreamer
+//!   moq-multicam publish --camera front --camera rear --source openh264
 
 use std::time::Duration;
 
@@ -13,15 +13,13 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use moq_multicam_core::CameraConfig;
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 use moq_multicam_bridge::VideoSource;
 
 /// Video source backend.
 #[derive(Clone, Copy, Debug)]
 pub enum SourceKind {
     Ffmpeg,
-    #[cfg(feature = "gstreamer")]
-    Gstreamer,
     #[cfg(feature = "openh264")]
     OpenH264,
     #[cfg(feature = "v4l")]
@@ -29,7 +27,7 @@ pub enum SourceKind {
 }
 
 /// Rendition configuration for adaptive bitrate.
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 struct Rendition {
     track_name: &'static str,
     width: u32,
@@ -38,7 +36,7 @@ struct Rendition {
     priority_offset: u8,
 }
 
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 const RENDITIONS: &[Rendition] = &[
     Rendition { track_name: "video", width: 640, height: 480, bitrate_kbps: 2000, priority_offset: 0 },
     Rendition { track_name: "video-low", width: 320, height: 240, bitrate_kbps: 500, priority_offset: 2 },
@@ -95,8 +93,6 @@ pub async fn run_multicam(
 
     match source_kind {
         SourceKind::Ffmpeg => run_multicam_ffmpeg(&origin, vehicle_id, cameras, reconnect).await,
-        #[cfg(feature = "gstreamer")]
-        SourceKind::Gstreamer => run_multicam_gstreamer(&origin, vehicle_id, cameras, reconnect).await,
         #[cfg(feature = "openh264")]
         SourceKind::OpenH264 => run_multicam_openh264(&origin, vehicle_id, cameras, reconnect).await,
         #[cfg(feature = "v4l")]
@@ -175,47 +171,11 @@ async fn ffmpeg_camera_loop(
 }
 
 // ---------------------------------------------------------------------------
-// GStreamer mode
+// OpenH264 mode
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "gstreamer")]
-async fn run_multicam_gstreamer(
-    origin: &moq_lite::OriginProducer,
-    vehicle_id: &str,
-    cameras: &[CameraConfig],
-    reconnect: moq_native::Reconnect,
-) -> Result<()> {
-    let mut join_set = JoinSet::new();
-
-    let _manifest = publish_manifest(origin, vehicle_id, cameras)?;
-
-    // BroadcastProducer must stay alive — dropping it closes the conducer channel,
-    // causing subscribe_track to fail with Error::Dropped on the relay side.
-    let mut broadcast_handles = Vec::new();
-
-    for cam in cameras {
-        let handles = publish_camera(origin, vehicle_id, cam, &mut join_set)?;
-        broadcast_handles.push(handles);
-    }
-
-    tracing::info!("all cameras publishing. Press Ctrl+C to stop.");
-
-    loop {
-        tokio::select! {
-            res = reconnect.closed() => { res?; break; }
-            Some(result) = join_set.join_next() => {
-                let cam_name = result?;
-                tracing::warn!(camera = %cam_name, "camera stopped");
-            }
-        }
-    }
-
-    join_set.abort_all();
-    Ok(())
-}
-
 /// Publish vehicle manifest for camera discovery.
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -244,23 +204,6 @@ fn publish_manifest(
     tracing::info!(broadcast = %manifest_path, "publishing vehicle manifest");
     Ok((broadcast, track))
 }
-
-/// Publish a single camera with all renditions. Returns handles to keep alive.
-#[cfg(feature = "gstreamer")]
-fn publish_camera(
-    origin: &moq_lite::OriginProducer,
-    vehicle_id: &str,
-    cam: &CameraConfig,
-    join_set: &mut JoinSet<String>,
-) -> Result<(moq_lite::BroadcastProducer, moq_mux::CatalogProducer)> {
-    publish_camera_with(origin, vehicle_id, cam, join_set, |r| {
-        moq_multicam_bridge::GstreamerSource::new(r.width, r.height, 30, r.bitrate_kbps)
-    })
-}
-
-// ---------------------------------------------------------------------------
-// OpenH264 mode
-// ---------------------------------------------------------------------------
 
 #[cfg(feature = "openh264")]
 async fn run_multicam_openh264(
@@ -345,7 +288,7 @@ async fn run_multicam_v4l(
 }
 
 /// Generic camera publisher — works with any VideoSource.
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 fn publish_camera_with<S: VideoSource>(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -393,7 +336,7 @@ fn publish_camera_with<S: VideoSource>(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "gstreamer", feature = "openh264", feature = "v4l"))]
+#[cfg(any(feature = "openh264", feature = "v4l"))]
 fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
     hang::catalog::VideoConfig {
         codec: hang::catalog::H264 {

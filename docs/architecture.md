@@ -25,7 +25,7 @@ Vehicle/Edge                     Cloud                        Operator
 ```
 ① Camera captures image (raw ~6MB)
         ↓
-② GStreamer encodes to H.264 (a few KB~tens of KB)
+② openh264 encodes to H.264 (a few KB~tens of KB)
         ↓
 ③ hang OrderedProducer wraps into Legacy container (varint timestamp + payload)
         ↓
@@ -90,7 +90,8 @@ to learn which cameras are available without hardcoding names.
 │  moq-multicam-bridge     │
 │                          │
 │  Video source (swappable)│
-│  ├── GStreamer           │
+│  ├── openh264           │
+│  ├── V4L2 (Linux)       │
 │  ├── ffmpeg (stdin pipe) │
 │  └── Test source         │
 │                          │
@@ -109,7 +110,8 @@ to learn which cameras are available without hardcoding names.
 │  publish            │
 │    ├── stdin mode        │
 │    ├── ffmpeg multicam   │
-│    └── gstreamer multicam│
+│    ├── openh264 multicam │
+│    └── v4l multicam      │
 │  publish (test source)   │
 │  subscribe               │
 │                          │
@@ -207,10 +209,10 @@ buffering old data.
 
 ```
 Video source options:
-  ├── GStreamer    ← Most versatile. USB/IP/RTSP cameras. Used in Docker.
-  ├── ffmpeg       ← Stdin pipe. No GStreamer dependency needed.
-  ├── Test source  ← Dummy frames. For dev/testing without cameras.
-  └── (future) V4L2  ← Linux camera API. Lightweight.
+  ├── openh264   ← Default. Lightweight H.264 encoding. Test pattern or real frames.
+  ├── V4L2       ← Linux camera API. USB/CSI cameras. Uses openh264 for encoding.
+  ├── ffmpeg     ← Stdin pipe. No native encoding dependency needed.
+  └── Test source ← Dummy frames. For dev/testing without cameras.
 ```
 
 Target platforms:
@@ -234,10 +236,10 @@ bridge: detect → reconnect with new QUIC session
 
 QUIC connection migration handles most network transitions transparently.
 
-### GStreamer Pipeline Error
+### Source Pipeline Error
 
 ```
-GStreamer error (camera disconnect, encoder crash)
+Source error (camera disconnect, encoder crash)
   → bridge detects pipeline failure
   → attempt pipeline restart after 2s delay
   → re-publish Track on success
@@ -309,6 +311,6 @@ use the same wall clock when running locally (Docker Compose).
 - No authentication (open relay)
 - No recording/playback
 - Fixed bitrate on publisher side (subscriber-side rendition switching works)
-- USB camera support not yet tested (GStreamer test sources only)
+- USB camera support not yet tested (openh264 test sources only)
 - No adaptive bitrate on publisher (publisher always sends both renditions)
-- ffmpeg mode is single-rendition only (multi-rendition requires GStreamer)
+- ffmpeg mode is single-rendition only (multi-rendition requires openh264 or v4l)

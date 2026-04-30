@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-gstreamer = ["moq-multicam-bridge/gstreamer"]
 openh264 = ["moq-multicam-bridge/openh264"]
 v4l = ["moq-multicam-bridge/v4l"]
 

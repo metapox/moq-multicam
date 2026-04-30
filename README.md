@@ -37,7 +37,7 @@ MoQ provides QUIC connection migration (mobile handover resilience), relay-based
 docker compose up
 ```
 
-Open http://localhost:5173 — 8 test cameras streaming via GStreamer → MoQ → WebTransport → WebCodecs.
+Open http://localhost:5173 — 8 test cameras streaming via openh264 → MoQ → WebTransport → WebCodecs.
 
 Click a thumbnail to switch focus. The focused camera gets high quality (640×480) + priority 0; others get low quality (320×240) + priority 200.
 
@@ -46,13 +46,13 @@ Click a thumbnail to switch focus. The focused camera gets high quality (640×48
 | Service | Description |
 |---|---|
 | `relay` | [moq-relay](https://github.com/moq-dev/moq) server (QUIC + WebTransport) |
-| `publisher` | GStreamer → H.264 → hang → relay (8 cameras, 1 process) |
+| `publisher` | openh264 → H.264 → hang → relay (8 cameras, 1 process) |
 | `web` | Browser viewer (Vite dev server, @moq/lite + WebCodecs) |
 
 ## Architecture
 
 ```
-GStreamer (8 cameras × 2 renditions = 16 pipelines)
+openh264 (8 cameras × 2 renditions = 16 pipelines)
   → hang OrderedProducer (H.264 Annex B direct write)
   → Broadcast per camera:
       vehicle/truck-01/camera/front  → video, video-low, catalog.json
@@ -71,17 +71,17 @@ See [docs/architecture.md](docs/architecture.md) for details.
 | Crate | Description |
 |---|---|
 | `moq-multicam-core` | Shared types: track naming, camera config, moq-lite wrapper |
-| `moq-multicam-bridge` | Video source → MoQ publish (GStreamer, ffmpeg, test source) |
+| `moq-multicam-bridge` | Video source → MoQ publish (openh264, V4L2, ffmpeg, test source) |
 | `moq-multicam-cli` | CLI: `publish`, `subscribe` |
 
 ## CLI Usage
 
 ```bash
-# Multi-camera with GStreamer (8 cameras, requires gstreamer feature)
+# Multi-camera with openh264 (8 cameras, default source)
 moq-multicam publish \
   --camera front --camera rear --camera left --camera right \
   --camera front-left --camera front-right --camera rear-left --camera rear-right \
-  --source gstreamer --tls-disable-verify
+  --source openh264 --tls-disable-verify
 
 # Multi-camera with ffmpeg
 moq-multicam publish --camera front --camera rear --source ffmpeg --tls-disable-verify
@@ -97,16 +97,16 @@ ffmpeg ... | moq-multicam publish --broadcast "vehicle/truck-01/camera/front" --
 - [Rust](https://rustup.rs/) (1.85+)
 - [moq-relay](https://github.com/moq-dev/moq) (`cargo install moq-relay`)
 - [Node.js](https://nodejs.org/) (for the browser viewer)
-- GStreamer (for `--source gstreamer`), or ffmpeg (for `--source ffmpeg`)
+- ffmpeg (for `--source ffmpeg`)
 
 ### Build
 
 ```bash
-# Without GStreamer
-cargo build -p moq-multicam-cli
+# With openh264 (default)
+cargo build -p moq-multicam-cli --features openh264
 
-# With GStreamer
-cargo build -p moq-multicam-cli --features gstreamer
+# With V4L2 camera support (Linux only)
+cargo build -p moq-multicam-cli --features v4l
 ```
 
 ### Run
@@ -134,14 +134,14 @@ Open http://localhost:5173 in Chrome.
 | QUIC | quinn (via moq-native 0.13) |
 | MoQ protocol | moq-lite 0.15 |
 | Media container | hang 0.15 (Container::Legacy) |
-| Video encode | H.264 via GStreamer 0.23 (x264enc) |
+| Video encode | H.264 via openh264 (+ V4L2 for real cameras) |
 | Browser | @moq/lite + @moq/hang + WebCodecs VideoDecoder + Canvas 2D |
 | Async runtime | tokio |
 
 ## Roadmap
 
 - [x] **Phase 0a**: E2E pipeline — test source → relay → browser
-- [x] **Phase 0b**: GStreamer, multi-camera, direct hang write, error recovery, Docker
+- [x] **Phase 0b**: Multi-camera, direct hang write, error recovery, Docker
 - [x] **Phase 1**: Broadcast per camera, 8 cameras, rendition switching, subscriber priority, stats overlay
 - [ ] **Phase 1**: USB camera support (requires real hardware)
 - [x] **Phase 2**: E2E latency measurement, teleoperation control channel

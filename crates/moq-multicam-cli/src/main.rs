@@ -31,8 +31,8 @@ enum Command {
         #[arg(long, default_value = "truck-01")]
         vehicle: String,
 
-        /// Video source backend: ffmpeg or gstreamer
-        #[arg(long, default_value = "ffmpeg")]
+        /// Video source backend: ffmpeg, openh264, or v4l
+        #[arg(long, default_value = "openh264")]
         source: String,
 
         #[arg(long)]
@@ -103,10 +103,6 @@ fn parse_cameras(s: &str) -> Vec<moq_multicam_core::CameraConfig> {
 fn parse_source(s: &str) -> Result<publish::SourceKind> {
     match s {
         "ffmpeg" => Ok(publish::SourceKind::Ffmpeg),
-        #[cfg(feature = "gstreamer")]
-        "gstreamer" | "gst" => Ok(publish::SourceKind::Gstreamer),
-        #[cfg(not(feature = "gstreamer"))]
-        "gstreamer" | "gst" => anyhow::bail!("gstreamer support not compiled in (enable 'gstreamer' feature)"),
         #[cfg(feature = "openh264")]
         "openh264" => Ok(publish::SourceKind::OpenH264),
         #[cfg(not(feature = "openh264"))]
@@ -115,6 +111,6 @@ fn parse_source(s: &str) -> Result<publish::SourceKind> {
         "v4l" | "v4l2" => Ok(publish::SourceKind::V4l),
         #[cfg(not(feature = "v4l"))]
         "v4l" | "v4l2" => anyhow::bail!("v4l support not compiled in (enable 'v4l' feature, Linux only)"),
-        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, gstreamer, openh264, v4l)"),
+        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, openh264, v4l)"),
     }
 }

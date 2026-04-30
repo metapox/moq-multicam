@@ -16,14 +16,6 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 bytes = "1"
 
-[dependencies.gstreamer]
-workspace = true
-optional = true
-
-[dependencies.gstreamer-app]
-workspace = true
-optional = true
-
 [dependencies.openh264]
 workspace = true
 optional = true
@@ -34,6 +26,5 @@ optional = true
 
 [features]
 default = []
-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 openh264 = ["dep:openh264"]
 v4l = ["dep:v4l", "dep:openh264"]

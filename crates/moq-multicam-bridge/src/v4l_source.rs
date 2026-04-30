@@ -1,4 +1,4 @@
-//! V4L2 camera capture + openh264 encode — no GStreamer required.
+//! V4L2 camera capture + openh264 encode.
 //!
 //! Captures raw frames from a Linux V4L2 device (e.g. /dev/video0),
 //! converts to YUV420, encodes with openh264, and writes H.264 Annex B
