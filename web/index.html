@@ -45,7 +45,7 @@
     const RELAY_URL = "http://localhost:4443";
     const VEHICLE_ID = "truck-01";
     const FOCUS_PRIORITY = 0;
-    const BG_PRIORITY = 200;
+    const BG_PRIORITY = 50;
 
     const params = new URLSearchParams(location.search);
     const cameraOverride = params.get("cameras")?.split(",");
@@ -122,7 +122,7 @@
 
       for (const [i, cam] of cameras.entries()) {
         const isFocus = i === 0;
-        startCamera(conn, cam, "video", isFocus ? FOCUS_PRIORITY : BG_PRIORITY);
+        startCamera(conn, cam, isFocus ? "video" : "video-low", isFocus ? FOCUS_PRIORITY : BG_PRIORITY);
       }
     });
 
@@ -218,16 +218,16 @@
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      if (prev.track) prev.track.updatePriority(BG_PRIORITY);
-      if (next.track) next.track.updatePriority(FOCUS_PRIORITY);
+      if (prev.videoConfig) subscribeVideo(prev, "video-low", BG_PRIORITY);
+      if (next.videoConfig) subscribeVideo(next, "video", FOCUS_PRIORITY);
 
       prev.div.classList.remove("active");
       prev.badge.className = "priority-badge bg";
-      prev.badge.textContent = `P${BG_PRIORITY}`;
+      prev.badge.textContent = `LQ P${BG_PRIORITY}`;
 
       next.div.classList.add("active");
       next.badge.className = "priority-badge focus";
-      next.badge.textContent = `P${FOCUS_PRIORITY}`;
+      next.badge.textContent = `HQ P${FOCUS_PRIORITY}`;
 
       focusLabel.textContent = next.name;
       focusIndex = index;

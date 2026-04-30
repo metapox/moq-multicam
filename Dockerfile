@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # --- Runtime stage (openh264, lightweight) ---
 FROM debian:bookworm-slim AS runtime-openh264
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates iproute2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder-openh264 /usr/local/bin/moq-multicam /usr/local/bin/
 ENTRYPOINT ["moq-multicam"]

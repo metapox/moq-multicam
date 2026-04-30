@@ -19,6 +19,7 @@ services:
       dockerfile: moq-multicam/Dockerfile
       target: runtime-openh264
     depends_on: [relay]
+    cap_add: [NET_ADMIN]
     command: >
       publish
       --relay https://relay:4443
