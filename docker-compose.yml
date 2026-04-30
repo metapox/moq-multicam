@@ -19,7 +19,7 @@ services:
       target: runtime-openh264
     depends_on: [relay]
     command: >
-      publish-fmp4
+      publish
       --relay https://relay:4443
       --camera front --camera rear
       ${EXTRA_CAMERAS:+--camera left --camera right
@@ -35,7 +35,7 @@ services:
     depends_on: [relay]
     profiles: [gstreamer]
     command: >
-      publish-fmp4
+      publish
       --relay https://relay:4443
       --camera front --camera rear
       ${EXTRA_CAMERAS:+--camera left --camera right

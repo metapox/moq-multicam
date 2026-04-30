@@ -72,22 +72,22 @@ See [docs/architecture.md](docs/architecture.md) for details.
 |---|---|
 | `moq-multicam-core` | Shared types: track naming, camera config, moq-lite wrapper |
 | `moq-multicam-bridge` | Video source → MoQ publish (GStreamer, ffmpeg, test source) |
-| `moq-multicam-cli` | CLI: `publish-fmp4`, `publish`, `subscribe` |
+| `moq-multicam-cli` | CLI: `publish`, `subscribe` |
 
 ## CLI Usage
 
 ```bash
 # Multi-camera with GStreamer (8 cameras, requires gstreamer feature)
-moq-multicam publish-fmp4 \
+moq-multicam publish \
   --camera front --camera rear --camera left --camera right \
   --camera front-left --camera front-right --camera rear-left --camera rear-right \
   --source gstreamer --tls-disable-verify
 
 # Multi-camera with ffmpeg
-moq-multicam publish-fmp4 --camera front --camera rear --source ffmpeg --tls-disable-verify
+moq-multicam publish --camera front --camera rear --source ffmpeg --tls-disable-verify
 
 # Single camera from stdin (backward compatible)
-ffmpeg ... | moq-multicam publish-fmp4 --broadcast "vehicle/truck-01/camera/front" --tls-disable-verify
+ffmpeg ... | moq-multicam publish --broadcast "vehicle/truck-01/camera/front" --tls-disable-verify
 ```
 
 ## Manual Setup
@@ -118,7 +118,7 @@ moq-relay --server-bind "[::]:4443" \
   --auth-public "" --web-http-listen "[::]:4443"
 
 # Terminal 2: publisher
-./target/debug/moq-multicam publish-fmp4 \
+./target/debug/moq-multicam publish \
   --camera front --camera rear --source ffmpeg --tls-disable-verify
 
 # Terminal 3: browser

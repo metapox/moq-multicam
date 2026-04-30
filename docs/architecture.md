@@ -106,7 +106,7 @@ to learn which cameras are available without hardcoding names.
 ┌──────────────────────────┐
 │  moq-multicam-cli        │
 │                          │
-│  publish-fmp4            │
+│  publish            │
 │    ├── stdin mode        │
 │    ├── ffmpeg multicam   │
 │    └── gstreamer multicam│
