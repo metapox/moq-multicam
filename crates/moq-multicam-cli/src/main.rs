@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::Parser;
 use url::Url;
 
-mod publish;
 mod publish_fmp4;
 mod subscribe;
 
@@ -15,17 +14,6 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Command {
-    /// Publish test cameras to a relay (dummy bytes, no video)
-    Publish {
-        #[arg(long, default_value = "https://localhost:4443")]
-        relay: Url,
-        #[arg(long, default_value = "truck-01")]
-        vehicle: String,
-        #[arg(long, default_value = "front,rear")]
-        cameras: String,
-        #[arg(long)]
-        tls_disable_verify: bool,
-    },
     /// Publish fMP4 to a relay. Use --broadcast for stdin pipe, or --camera for built-in source.
     PublishFmp4 {
         #[arg(long, default_value = "https://localhost:4443")]
@@ -75,12 +63,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Publish {
-            relay, vehicle, cameras, tls_disable_verify,
-        } => {
-            let cameras = parse_cameras(&cameras);
-            publish::run(relay, &vehicle, &cameras, tls_disable_verify).await
-        }
         Command::PublishFmp4 {
             relay, broadcast, camera, vehicle, source, tls_disable_verify,
         } => {

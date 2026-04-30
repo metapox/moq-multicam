@@ -11,7 +11,7 @@ pub async fn run(
     cameras: &[CameraConfig],
     tls_disable_verify: bool,
 ) -> Result<()> {
-    let origin = Origin::produce();
+    let origin = Origin::random().produce();
 
     let mut config = moq_native::ClientConfig::default();
     if tls_disable_verify {
@@ -47,7 +47,9 @@ pub async fn run(
             let track_path = TrackPath::camera(vehicle_id, &cam.name, Quality::High);
             let mut track = broadcast.subscribe_track(&Track {
                 name: track_path.track_name(),
+            }, moq_multicam_core::Subscription {
                 priority: cam.priority,
+                ..Default::default()
             })?;
 
             let cam_name = cam.name.clone();

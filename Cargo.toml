@@ -10,10 +10,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/metapox/moq-multicam"
 
 [workspace.dependencies]
-moq-lite = "0.15"
-moq-native = { version = "0.13", default-features = false, features = ["quinn", "aws-lc-rs"] }
-moq-mux = "0.3"
-hang = "0.15"
+moq-lite = { path = "../../moq-fork/rs/moq-lite" }
+moq-native = { path = "../../moq-fork/rs/moq-native", default-features = false, features = ["quinn", "aws-lc-rs"] }
+moq-mux = { path = "../../moq-fork/rs/moq-mux" }
+hang = { path = "../../moq-fork/rs/hang" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

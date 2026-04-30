@@ -7,7 +7,7 @@ pub use moq_lite::{
     Broadcast, BroadcastProducer,
     GroupProducer,
     Origin, OriginConsumer, OriginProducer,
-    Path, Track, TrackConsumer, TrackProducer,
+    Path, Subscription, Track, TrackConsumer, TrackProducer,
 };
 
 use crate::{CameraConfig, Quality};
@@ -18,13 +18,12 @@ pub fn create_camera_broadcast(
     _vehicle_id: &str,
     cameras: &[CameraConfig],
 ) -> anyhow::Result<(BroadcastProducer, Vec<TrackProducer>)> {
-    let mut broadcast = Broadcast::produce();
+    let mut broadcast = Broadcast::default().produce();
     let mut tracks = Vec::with_capacity(cameras.len());
 
     for cam in cameras {
         let track = broadcast.create_track(Track {
             name: Quality::High.track_name().to_string(),
-            priority: cam.priority,
         })?;
         tracks.push(track);
     }

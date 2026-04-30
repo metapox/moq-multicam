@@ -52,10 +52,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_source_produces_frames() {
-        let mut broadcast = moq_lite::Broadcast::produce();
+        let mut broadcast = moq_lite::Broadcast::new().produce();
         let track = broadcast.create_track(moq_lite::Track {
             name: "video".into(),
-            priority: 0,
         }).unwrap();
 
         let producer = OrderedProducer::new(track);
@@ -64,8 +63,7 @@ mod tests {
         let consumer = broadcast.consume();
         let mut track_consumer = consumer.subscribe_track(&moq_lite::Track {
             name: "video".into(),
-            priority: 0,
-        }).unwrap();
+        }, moq_lite::Subscription::default()).unwrap();
 
         let handle = tokio::spawn(source.run(producer));
 

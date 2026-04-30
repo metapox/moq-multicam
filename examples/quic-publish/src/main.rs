@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         CameraConfig { name: "rear".into(), priority: 1 },
     ];
 
-    let origin = Origin::produce();
+    let origin = Origin::random().produce();
     let (broadcast, tracks) = create_camera_broadcast(VEHICLE_ID, &cameras)?;
 
     let broadcast_path = TrackPath::camera(VEHICLE_ID, "front", Quality::High).broadcast_path();
