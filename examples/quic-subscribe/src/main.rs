@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         CameraConfig { name: "rear".into(), priority: 1 },
     ];
 
-    let origin = Origin::produce();
+    let origin = Origin::random().produce();
 
     // Connect to relay as consumer
     let mut config = moq_native::ClientConfig::default();
@@ -63,7 +63,9 @@ async fn main() -> anyhow::Result<()> {
             let track_path = TrackPath::camera(VEHICLE_ID, &cam.name, Quality::High);
             let mut track = broadcast.subscribe_track(&Track {
                 name: track_path.track_name(),
+            }, Subscription {
                 priority: cam.priority,
+                ..Default::default()
             })?;
 
             let cam_name = cam.name.clone();

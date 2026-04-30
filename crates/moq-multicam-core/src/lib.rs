@@ -11,5 +11,5 @@ pub use moq::{
     Broadcast, BroadcastProducer,
     GroupProducer,
     Origin, OriginConsumer, OriginProducer,
-    Path, Track, TrackConsumer, TrackProducer,
+    Path, Subscription, Track, TrackConsumer, TrackProducer,
 };

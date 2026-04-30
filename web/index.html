@@ -48,8 +48,7 @@
     const BG_PRIORITY = 200;
 
     const params = new URLSearchParams(location.search);
-    const cameraNames = params.get("cameras")?.split(",")
-      ?? ["front", "rear", "left", "right", "front-left", "front-right", "rear-left", "rear-right"];
+    const cameraOverride = params.get("cameras")?.split(",");
 
     const connection = new Moq.Connection.Reload({ url: new URL(RELAY_URL), enabled: true });
 
@@ -62,7 +61,8 @@
     const thumbStrip = document.getElementById("thumb-strip");
     const statsEl = document.getElementById("stats");
 
-    for (const [i, name] of cameraNames.entries()) {
+    function addCamera(name) {
+      const i = cameras.length;
       const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = 320;
       thumbCanvas.height = 240;
@@ -86,24 +86,43 @@
       cameras.push({
         name, thumbCanvas, div, badge,
         decoder: null, consumer: null, broadcast: null, videoConfig: null,
-        // Stats counters
         frames: 0, bytes: 0, drops: 0, lastFrameTime: 0, latency: null,
       });
     }
-
-    focusLabel.textContent = cameras[0].name;
 
     // Connection-level stats
     let connEstablished = null;
 
     let started = false;
-    connection.established.watch(conn => {
+    connection.established.watch(async conn => {
       if (!conn || started) return;
       started = true;
       connEstablished = conn;
+
+      let cameraNames;
+      if (cameraOverride) {
+        cameraNames = cameraOverride;
+      } else {
+        const metaBroadcast = conn.consume(`vehicle/${VEHICLE_ID}/meta`);
+        const manifestTrack = metaBroadcast.subscribe("manifest", 100);
+        const frame = await manifestTrack.readFrame();
+        manifestTrack.close();
+        if (frame) {
+          const manifest = JSON.parse(new TextDecoder().decode(frame));
+          cameraNames = manifest.cameras.map(c => c.name);
+          console.log("manifest: discovered cameras", cameraNames);
+        } else {
+          cameraNames = ["front", "rear"];
+          console.warn("manifest: no data, falling back to defaults");
+        }
+      }
+
+      for (const name of cameraNames) addCamera(name);
+      if (cameras.length > 0) focusLabel.textContent = cameras[0].name;
+
       for (const [i, cam] of cameras.entries()) {
         const isFocus = i === 0;
-        startCamera(conn, cam, isFocus ? "video" : "video-low", isFocus ? FOCUS_PRIORITY : BG_PRIORITY);
+        startCamera(conn, cam, "video", isFocus ? FOCUS_PRIORITY : BG_PRIORITY);
       }
     });
 
@@ -130,6 +149,7 @@
       cam.drops = 0;
 
       const track = cam.broadcast.subscribe(trackName, priority);
+      cam.track = track;
       const consumer = new ContainerLegacy.Consumer(track);
       cam.consumer = consumer;
 
@@ -198,16 +218,16 @@
       const prev = cameras[focusIndex];
       const next = cameras[index];
 
-      if (prev.videoConfig) subscribeVideo(prev, "video-low", BG_PRIORITY);
-      if (next.videoConfig) subscribeVideo(next, "video", FOCUS_PRIORITY);
+      if (prev.track) prev.track.updatePriority(BG_PRIORITY);
+      if (next.track) next.track.updatePriority(FOCUS_PRIORITY);
 
       prev.div.classList.remove("active");
       prev.badge.className = "priority-badge bg";
-      prev.badge.textContent = "LQ P200";
+      prev.badge.textContent = `P${BG_PRIORITY}`;
 
       next.div.classList.add("active");
       next.badge.className = "priority-badge focus";
-      next.badge.textContent = "HQ P0";
+      next.badge.textContent = `P${FOCUS_PRIORITY}`;
 
       focusLabel.textContent = next.name;
       focusIndex = index;
@@ -226,9 +246,11 @@
     requestAnimationFrame(mirrorFocus);
 
     // Stats UI — update every second
-    let prevStats = cameras.map(() => ({ frames: 0, bytes: 0 }));
+    let prevStats = [];
 
     setInterval(() => {
+      if (cameras.length === 0) return;
+      while (prevStats.length < cameras.length) prevStats.push({ frames: 0, bytes: 0 });
       const focus = cameras[focusIndex];
       const now = performance.now();
 

@@ -6,7 +6,7 @@
     "dev": "npx vite"
   },
   "dependencies": {
-    "@moq/lite": "^0.2.2",
+    "@moq/lite": "file:../../../moq-fork/js/lite/dist",
     "@moq/hang": "^0.2.4"
   },
   "devDependencies": {

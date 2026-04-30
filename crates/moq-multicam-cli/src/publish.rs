@@ -1,10 +1,10 @@
 //! Publish video to a relay — single camera (stdin fMP4) or multi-camera.
 //!
 //! Single camera (stdin pipe, backward compatible):
-//!   ffmpeg ... | moq-multicam publish --broadcast vehicle/truck-01/camera/front
+//!   ffmpeg ... | moq-multicam publish-fmp4 --broadcast vehicle/truck-01/camera/front
 //!
 //! Multi-camera:
-//!   moq-multicam publish --camera front --camera rear --source gstreamer
+//!   moq-multicam publish-fmp4 --camera front --camera rear --source gstreamer
 
 use std::time::Duration;
 
@@ -46,9 +46,9 @@ const RENDITIONS: &[Rendition] = &[
 
 /// Single camera: read fMP4 from stdin (backward compatible).
 pub async fn run_stdin(relay: Url, broadcast_path: &str, tls_disable_verify: bool) -> Result<()> {
-    let origin = moq_lite::Origin::produce();
+    let origin = moq_lite::Origin::random().produce();
 
-    let mut broadcast = moq_lite::Broadcast::produce();
+    let mut broadcast = moq_lite::Broadcast::new().produce();
     let catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
     let fmp4 = moq_mux::import::Fmp4::new(
         broadcast.clone(), catalog,
@@ -77,8 +77,8 @@ pub async fn run_multicam(
     source_kind: SourceKind,
     tls_disable_verify: bool,
 ) -> Result<()> {
-    let origin = moq_lite::Origin::produce();
-    let subscribe_origin = moq_lite::Origin::produce();
+    let origin = moq_lite::Origin::random().produce();
+    let subscribe_origin = moq_lite::Origin::random().produce();
 
     let client = make_client(tls_disable_verify)?;
     tracing::info!(%relay, "connecting to relay (with auto-reconnect)...");
@@ -131,7 +131,7 @@ fn spawn_ffmpeg_camera(
     cam_name: &str,
     join_set: &mut JoinSet<String>,
 ) {
-    let mut broadcast = moq_lite::Broadcast::produce();
+    let mut broadcast = moq_lite::Broadcast::new().produce();
     let catalog = moq_mux::CatalogProducer::new(&mut broadcast).expect("catalog creation failed");
     let fmp4 = moq_mux::import::Fmp4::new(
         broadcast.clone(), catalog,
@@ -187,7 +187,7 @@ async fn run_multicam_gstreamer(
 ) -> Result<()> {
     let mut join_set = JoinSet::new();
 
-    publish_manifest(origin, vehicle_id, cameras)?;
+    let _manifest = publish_manifest(origin, vehicle_id, cameras)?;
 
     // BroadcastProducer must stay alive — dropping it closes the conducer channel,
     // causing subscribe_track to fail with Error::Dropped on the relay side.
@@ -220,12 +220,11 @@ fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
     cameras: &[CameraConfig],
-) -> Result<()> {
+) -> Result<(moq_lite::BroadcastProducer, moq_lite::TrackProducer)> {
     let manifest_path = format!("vehicle/{}/meta", vehicle_id);
-    let mut broadcast = moq_lite::Broadcast::produce();
-    let track = broadcast.create_track(moq_lite::Track {
+    let mut broadcast = moq_lite::Broadcast::new().produce();
+    let mut track = broadcast.create_track(moq_lite::Track {
         name: "manifest".to_string(),
-        priority: 0,
     })?;
 
     let manifest = serde_json::json!({
@@ -236,16 +235,14 @@ fn publish_manifest(
         })).collect::<Vec<_>>(),
     });
 
-    let mut producer = hang::container::OrderedProducer::new(track);
-    let _ = producer.keyframe();
-    producer.write(hang::container::Frame {
-        timestamp: hang::container::Timestamp::from_micros(0)?,
-        payload: bytes::Bytes::from(manifest.to_string()).into(),
-    })?;
+    let json = manifest.to_string();
+    let mut group = track.create_group(moq_lite::Group { sequence: 0 })?;
+    group.write_frame(bytes::Bytes::from(json))?;
+    group.finish()?;
 
     origin.publish_broadcast(&manifest_path, broadcast.consume());
     tracing::info!(broadcast = %manifest_path, "publishing vehicle manifest");
-    Ok(())
+    Ok((broadcast, track))
 }
 
 /// Publish a single camera with all renditions. Returns handles to keep alive.
@@ -274,7 +271,7 @@ async fn run_multicam_openh264(
 ) -> Result<()> {
     let mut join_set = JoinSet::new();
 
-    publish_manifest(origin, vehicle_id, cameras)?;
+    let _manifest = publish_manifest(origin, vehicle_id, cameras)?;
 
     let mut broadcast_handles = Vec::new();
 
@@ -316,7 +313,7 @@ async fn run_multicam_v4l(
 ) -> Result<()> {
     let mut join_set = JoinSet::new();
 
-    publish_manifest(origin, vehicle_id, cameras)?;
+    let _manifest = publish_manifest(origin, vehicle_id, cameras)?;
 
     let mut broadcast_handles = Vec::new();
 
@@ -357,7 +354,7 @@ fn publish_camera_with<S: VideoSource>(
     make_source: impl Fn(&Rendition) -> S,
 ) -> Result<(moq_lite::BroadcastProducer, moq_mux::CatalogProducer)> {
     let broadcast_path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
-    let mut broadcast = moq_lite::Broadcast::produce();
+    let mut broadcast = moq_lite::Broadcast::new().produce();
     let mut catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
 
     {
@@ -370,7 +367,6 @@ fn publish_camera_with<S: VideoSource>(
     for r in RENDITIONS {
         let track = broadcast.create_track(moq_lite::Track {
             name: r.track_name.to_string(),
-            priority: cam.priority + r.priority_offset,
         })?;
         let producer = hang::container::OrderedProducer::new(track);
 
@@ -444,8 +440,7 @@ async fn subscribe_commands(origin: moq_lite::OriginProducer, vehicle_id: &str) 
 
         let mut track = match broadcast.subscribe_track(&moq_lite::Track {
             name: "command".to_string(),
-            priority: 0,
-        }) {
+        }, moq_lite::Subscription::default()) {
             Ok(t) => t,
             Err(e) => { tracing::warn!("failed to subscribe command track: {e}"); continue; }
         };

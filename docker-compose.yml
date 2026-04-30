@@ -1,8 +1,8 @@
 services:
   relay:
     build:
-      context: .
-      target: relay
+      context: ../moq-fork
+      dockerfile: Dockerfile.relay
     ports:
       - "4443:4443/tcp"
       - "4443:4443/udp"
@@ -15,7 +15,8 @@ services:
 
   publisher:
     build:
-      context: .
+      context: ..
+      dockerfile: moq-multicam/Dockerfile
       target: runtime-openh264
     depends_on: [relay]
     command: >
@@ -27,27 +28,12 @@ services:
       --source openh264
       --tls-disable-verify
 
-  # GStreamer publisher (heavier, but supports real cameras)
-  publisher-gstreamer:
-    build:
-      context: .
-      target: runtime
-    depends_on: [relay]
-    profiles: [gstreamer]
-    command: >
-      publish
-      --relay https://relay:4443
-      --camera front --camera rear
-      ${EXTRA_CAMERAS:+--camera left --camera right
-      --camera front-left --camera front-right --camera rear-left --camera rear-right}
-      --source gstreamer
-      --tls-disable-verify
-
   web:
-    image: node:22-slim
+    image: node:20-slim
     working_dir: /app
     volumes:
       - ./web:/app
+      - ../moq-fork/js/lite/dist:/moq-lite-dist:ro
     ports:
       - "5173:5173"
-    command: sh -c "npm install && npx vite --host"
+    command: sh -c "npm install && rm -rf node_modules/@moq/lite node_modules/@moq/hang/node_modules/@moq/lite node_modules/.vite && cp -r /moq-lite-dist node_modules/@moq/lite && cp -r /moq-lite-dist node_modules/@moq/hang/node_modules/@moq/lite && npx vite --host"

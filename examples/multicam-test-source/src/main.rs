@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         CameraConfig { name: "rear".into(), priority: 1 },
     ];
 
-    let origin = Origin::produce();
+    let origin = Origin::random().produce();
     let consumer = origin.consume();
 
     let (broadcast, tracks) = create_camera_broadcast(VEHICLE_ID, &cameras)?;
@@ -69,7 +69,9 @@ async fn subscribe(
             let track_path = TrackPath::camera(vehicle_id, &cam.name, Quality::High);
             let mut track = broadcast.subscribe_track(&Track {
                 name: track_path.track_name(),
+            }, Subscription {
                 priority: cam.priority,
+                ..Default::default()
             })?;
 
             let cam_name = cam.name.clone();

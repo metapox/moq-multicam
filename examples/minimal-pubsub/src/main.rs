@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter("info")
         .init();
 
-    let origin = moq_lite::Origin::produce();
+    let origin = moq_lite::Origin::random().produce();
     let consumer = origin.consume();
 
     // Run subscriber first so it's ready when publisher starts announcing.
@@ -27,11 +27,10 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn publish(origin: moq_lite::OriginProducer) -> anyhow::Result<()> {
-    let mut broadcast = moq_lite::Broadcast::produce();
+    let mut broadcast = moq_lite::Broadcast::new().produce();
 
     let mut track = broadcast.create_track(moq_lite::Track {
         name: "video".into(),
-        priority: 0,
     })?;
 
     origin.publish_broadcast("cam/front", broadcast.consume());
@@ -78,8 +77,7 @@ async fn subscribe(consumer: moq_lite::OriginConsumer) -> anyhow::Result<()> {
 
         let mut track = broadcast.subscribe_track(&moq_lite::Track {
             name: "video".into(),
-            priority: 0,
-        })?;
+        }, moq_lite::Subscription::default())?;
 
         let mut group_count = 0u64;
         loop {
