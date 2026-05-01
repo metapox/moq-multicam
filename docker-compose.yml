@@ -26,8 +26,11 @@ services:
       --camera front --camera rear
       ${EXTRA_CAMERAS:+--camera left --camera right
       --camera front-left --camera front-right --camera rear-left --camera rear-right}
-      --source openh264
+      --source ${VIDEO_SOURCE:-openh264}
+      --video-dir /videos
       --tls-disable-verify
+    volumes:
+      - ./videos:/videos:ro
 
   web:
     image: node:20-slim

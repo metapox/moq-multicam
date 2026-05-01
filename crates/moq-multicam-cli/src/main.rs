@@ -31,9 +31,13 @@ enum Command {
         #[arg(long, default_value = "truck-01")]
         vehicle: String,
 
-        /// Video source backend: ffmpeg, openh264, or v4l
+        /// Video source backend: ffmpeg, openh264, v4l, or file
         #[arg(long, default_value = "openh264")]
         source: String,
+
+        /// Directory containing video files (for --source file). Looks for {camera_name}.mp4
+        #[arg(long, default_value = "videos")]
+        video_dir: String,
 
         #[arg(long)]
         tls_disable_verify: bool,
@@ -64,7 +68,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Publish {
-            relay, broadcast, camera, vehicle, source, tls_disable_verify,
+            relay, broadcast, camera, vehicle, source, video_dir, tls_disable_verify,
         } => {
             if let Some(broadcast_path) = broadcast {
                 publish::run_stdin(relay, &broadcast_path, tls_disable_verify).await
@@ -76,7 +80,7 @@ async fn main() -> Result<()> {
                     }
                 }).collect();
                 let source_kind = parse_source(&source)?;
-                publish::run_multicam(relay, &vehicle, &cameras, source_kind, tls_disable_verify).await
+                publish::run_multicam(relay, &vehicle, &cameras, source_kind, &video_dir, tls_disable_verify).await
             } else {
                 anyhow::bail!("specify --broadcast for stdin pipe or --camera for built-in source")
             }
@@ -103,6 +107,7 @@ fn parse_cameras(s: &str) -> Vec<moq_multicam_core::CameraConfig> {
 fn parse_source(s: &str) -> Result<publish::SourceKind> {
     match s {
         "ffmpeg" => Ok(publish::SourceKind::Ffmpeg),
+        "file" => Ok(publish::SourceKind::File),
         #[cfg(feature = "openh264")]
         "openh264" => Ok(publish::SourceKind::OpenH264),
         #[cfg(not(feature = "openh264"))]
@@ -111,6 +116,6 @@ fn parse_source(s: &str) -> Result<publish::SourceKind> {
         "v4l" | "v4l2" => Ok(publish::SourceKind::V4l),
         #[cfg(not(feature = "v4l"))]
         "v4l" | "v4l2" => anyhow::bail!("v4l support not compiled in (enable 'v4l' feature, Linux only)"),
-        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, openh264, v4l)"),
+        other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, openh264, v4l, file)"),
     }
 }
