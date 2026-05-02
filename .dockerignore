@@ -1,0 +1,4 @@
+target/
+videos/
+.git/
+node_modules/
