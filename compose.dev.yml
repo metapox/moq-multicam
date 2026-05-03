@@ -1,0 +1,40 @@
+services:
+  relay:
+    image: moq-relay:local
+    ports:
+      - "4443:4443/tcp"
+      - "4443:4443/udp"
+    command: >
+      --server-bind [::]:4443
+      --tls-generate localhost
+      --tls-disable-verify
+      --auth-public ""
+      --web-http-listen [::]:4443
+
+  publisher-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    depends_on: [relay]
+    cap_add: [NET_ADMIN]
+    volumes:
+      - .:/app
+      - ../moq-fork:/moq-fork:ro
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/app/target
+      - ./videos:/videos:ro
+    command: sleep infinity
+
+  web:
+    image: node:20-slim
+    working_dir: /app
+    volumes:
+      - ./web:/app
+      - ../moq-fork/js/lite/dist:/moq-lite-dist:ro
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && rm -rf node_modules/@moq/lite node_modules/@moq/hang/node_modules/@moq/lite node_modules/.vite && cp -r /moq-lite-dist node_modules/@moq/lite && cp -r /moq-lite-dist node_modules/@moq/hang/node_modules/@moq/lite && npx vite --host"
+
+volumes:
+  cargo-registry:
+  cargo-target:
