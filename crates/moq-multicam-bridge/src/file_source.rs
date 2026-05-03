@@ -77,7 +77,7 @@ impl VideoSource for FileSource {
                 .spawn()
                 .context("failed to spawn ffmpeg")?;
 
-            let mut stdout = child.stdout.take().unwrap();
+            let mut stdout = child.stdout.take().context("ffmpeg stdout not available")?;
             let mut buf = vec![0u8; frame_size];
 
             loop {
@@ -120,7 +120,9 @@ impl VideoSource for FileSource {
                     let ft = bs.frame_type();
                     Ok((data, encoder, ft))
                 })
-                .await??;
+                .await
+                .context("encode task panicked")?
+                .context("openh264 encode failed")?;
 
                 let (annexb, enc, frame_type) = result;
                 encoder = enc;

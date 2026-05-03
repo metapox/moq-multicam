@@ -34,19 +34,27 @@ impl VideoSource for TestSource {
         let mut pts: u64 = 0;
 
         loop {
-            let _ = producer.keyframe();
+            if producer.keyframe().is_err() {
+                break;
+            }
 
             for i in 0..self.gop_size {
                 let tag = if i == 0 { b'I' } else { b'P' };
                 let payload = Bytes::from(vec![tag; self.frame_size]);
-                let _ = producer.write(hang::container::Frame {
-                    timestamp: hang::container::Timestamp::from_micros(pts)?,
-                    payload: payload.into(),
-                });
+                if producer
+                    .write(hang::container::Frame {
+                        timestamp: hang::container::Timestamp::from_micros(pts)?,
+                        payload: payload.into(),
+                    })
+                    .is_err()
+                {
+                    return Ok(());
+                }
                 pts += 1_000_000 / self.fps as u64;
                 tokio::time::sleep(frame_interval).await;
             }
         }
+        Ok(())
     }
 }
 

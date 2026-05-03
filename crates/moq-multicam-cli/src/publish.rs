@@ -175,7 +175,7 @@ async fn run_multicam_ffmpeg(
 
     for cam in cameras {
         let path = format!("vehicle/{}/camera/{}", vehicle_id, cam.name);
-        spawn_ffmpeg_camera(origin, &path, &cam.name, &mut join_set);
+        spawn_ffmpeg_camera(origin, &path, &cam.name, &mut join_set)?;
     }
 
     tracing::info!("all cameras publishing (ffmpeg). Press Ctrl+C to stop.");
@@ -187,9 +187,10 @@ fn spawn_ffmpeg_camera(
     broadcast_path: &str,
     cam_name: &str,
     join_set: &mut JoinSet<String>,
-) {
+) -> Result<()> {
     let mut broadcast = moq_lite::Broadcast::new().produce();
-    let catalog = moq_mux::CatalogProducer::new(&mut broadcast).expect("catalog creation failed");
+    let catalog = moq_mux::CatalogProducer::new(&mut broadcast)
+        .context("failed to create catalog producer")?;
     let fmp4 = moq_mux::import::Fmp4::new(
         broadcast.clone(),
         catalog,
@@ -207,6 +208,7 @@ fn spawn_ffmpeg_camera(
         }
         name
     });
+    Ok(())
 }
 
 async fn ffmpeg_camera_loop(
@@ -223,7 +225,7 @@ async fn ffmpeg_camera_loop(
                 tracing::warn!(camera = %cam_name, "camera stopped, restarting in 2s...");
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 let path = format!("vehicle/{}/camera/{}", vehicle_id, cam_name);
-                spawn_ffmpeg_camera(origin, &path, &cam_name, join_set);
+                spawn_ffmpeg_camera(origin, &path, &cam_name, join_set)?;
                 tracing::info!(camera = %cam_name, "camera restarted");
             }
         }
