@@ -72,7 +72,20 @@ impl VideoSource for FileSource {
                 }
 
                 let is_gop_start = frame_num % gop_size == 0;
-                let rgb = buf.clone();
+                let mut rgb = buf.clone();
+
+                // Embed wall-clock timestamp for E2E latency measurement
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                for bit in 0..48.min(w) {
+                    let val = if (now_ms >> (47 - bit)) & 1 == 1 { 255u8 } else { 0u8 };
+                    let idx = bit * 3;
+                    rgb[idx] = val;
+                    rgb[idx + 1] = val;
+                    rgb[idx + 2] = val;
+                }
 
                 let result = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
                     let yuv = YUVBuffer::with_rgb(w, h, &rgb);
