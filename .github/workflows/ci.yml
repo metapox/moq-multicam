@@ -16,7 +16,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Checkout moq-fork
-        run: git clone --depth 1 --branch feat/subscribe-update-api https://github.com/metapox/moq.git ../moq-fork
+        run: |
+          git clone --depth 1 --branch feat/subscribe-update-api https://github.com/metapox/moq.git ../moq-fork
+          cd ../moq-fork && git fetch --depth 1 origin b1455e7e6bc1941eb67f307501b33643b9bfe864 && git checkout b1455e7e6bc1941eb67f307501b33643b9bfe864
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config cmake
@@ -35,3 +37,8 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --features openh264
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --ignore RUSTSEC-2025-0008 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2025-0134

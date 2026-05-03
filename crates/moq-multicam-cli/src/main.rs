@@ -85,8 +85,13 @@ async fn main() -> Result<()> {
             video_dir,
             tls_disable_verify,
         } => {
-            if let Some(token) = jwt {
-                relay.query_pairs_mut().append_pair("jwt", &token);
+            if let Some(ref token) = jwt {
+                // Mask JWT in logs to prevent token leakage
+                tracing::info!(
+                    jwt_len = token.len(),
+                    "JWT provided for relay authentication"
+                );
+                relay.query_pairs_mut().append_pair("jwt", token);
             }
             if let Some(broadcast_path) = broadcast {
                 publish::run_stdin(relay, &broadcast_path, tls_disable_verify).await
@@ -120,6 +125,7 @@ async fn main() -> Result<()> {
             tls_disable_verify,
         } => {
             let cameras = parse_cameras(&cameras);
+            #[allow(deprecated)]
             subscribe::run(relay, &vehicle, &cameras, tls_disable_verify).await
         }
     }

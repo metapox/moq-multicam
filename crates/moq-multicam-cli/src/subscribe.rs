@@ -5,6 +5,7 @@ use url::Url;
 
 use moq_multicam_core::*;
 
+#[deprecated(note = "Uses old single-broadcast design. Use the web viewer instead.")]
 pub async fn run(
     relay: Url,
     vehicle_id: &str,

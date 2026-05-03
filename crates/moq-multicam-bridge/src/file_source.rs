@@ -18,6 +18,7 @@ pub struct FileSource {
     width: u32,
     height: u32,
     fps: u32,
+    // TODO: openh264 0.4 does not expose bitrate config. Upgrade to 0.8+ to enable.
     _bitrate_kbps: u32,
 }
 
@@ -106,6 +107,8 @@ impl VideoSource for FileSource {
                 let result = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
                     let yuv = YUVBuffer::with_rgb(w, h, &rgb);
                     if is_gop_start {
+                        // SAFETY: force_intra_frame is a simple boolean setter on the initialized encoder.
+                        // The encoder is exclusively owned within this spawn_blocking closure.
                         unsafe {
                             encoder.raw_api().force_intra_frame(true);
                         }
