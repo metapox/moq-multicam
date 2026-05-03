@@ -6,6 +6,23 @@ Stream 8 cameras to browsers in real-time with sub-second latency, per-camera su
 
 > **Status**: Phase 2 in progress — teleoperation control channel, E2E latency measurement, 8-camera streaming with priority-based bandwidth adaptation
 
+## Demo: Priority-Based Bandwidth Adaptation
+
+![Bandwidth adaptation demo](docs/demo-bandwidth-adaptation.gif)
+
+**The problem**: In teleoperation, an operator monitors multiple cameras over a constrained network (LTE/5G). When bandwidth drops, all cameras degrade equally — the operator loses situational awareness on the camera that matters most.
+
+**The solution**: Each camera subscription has a priority. The focused camera gets priority 0 (highest); background cameras get priority 200. When bandwidth is limited, QUIC's stream priority ensures the focused camera keeps receiving frames while background cameras gracefully degrade.
+
+**What the demo shows**:
+1. Two cameras streaming (front/rear dashcam footage)
+2. Bandwidth throttled to 2 Mbps via `tc` — the red banner appears
+3. Focus camera maintains ~16 FPS / 1.6 Mbps; background camera drops
+4. Operator clicks to switch focus — the new focus camera **instantly** recovers without re-subscribing (via `SUBSCRIBE_UPDATE`)
+5. Bandwidth restored — all cameras recover
+
+This works because moq-multicam uses [SUBSCRIBE_UPDATE](https://github.com/moq-dev/moq/issues/1363) to change priority without closing the subscription, and a [patched PriorityQueue](https://github.com/moq-dev/moq/issues/1370) that propagates priority changes to in-flight QUIC streams.
+
 ## Why
 
 Existing solutions don't handle **multi-camera × WAN × scalable** well:
