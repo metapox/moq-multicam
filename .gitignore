@@ -2,3 +2,4 @@
 Cargo.lock
 .certs/
 videos/
+web/demo-status.txt

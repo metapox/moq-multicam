@@ -20,11 +20,16 @@
     .priority-badge.focus { background: #4a4; }
     .priority-badge.bg { background: #a84; }
     #stats { position: fixed; top: 0; right: 0; background: rgba(0,0,0,0.8); padding: 8px 12px; font-size: 0.7rem; font-family: monospace; line-height: 1.4; z-index: 10; border-bottom-left-radius: 6px; min-width: 180px; }
+    #demo-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 20; text-align: center; padding: 10px 16px; font-size: 1rem; font-weight: bold; transition: opacity 0.3s, transform 0.3s; opacity: 0; transform: translateY(-100%); pointer-events: none; }
+    #demo-banner.visible { opacity: 1; transform: translateY(0); }
+    #demo-banner.throttled { background: rgba(220, 50, 50, 0.9); }
+    #demo-banner.restored { background: rgba(50, 180, 50, 0.9); }
     #stats .label { color: #888; }
     #stats .value { color: #4f4; }
   </style>
 </head>
 <body>
+  <div id="demo-banner"></div>
   <div id="stats"></div>
   <div class="layout">
     <h1>moq-multicam viewer</h1>
@@ -339,6 +344,28 @@
       e.preventDefault();
       commandTrack.writeJson({ type: cmd, value: 0, ts: Date.now() });
     });
+    // --- Demo banner (polls demo-status.txt written by demo-throttle.sh) ---
+    const banner = document.getElementById("demo-banner");
+    let lastDemoStatus = "";
+    setInterval(async () => {
+      try {
+        const res = await fetch("/demo-status.txt?" + Date.now());
+        if (!res.ok) return;
+        const status = (await res.text()).trim();
+        if (status === lastDemoStatus) return;
+        lastDemoStatus = status;
+        if (status === "throttled") {
+          banner.textContent = "⚠️ Bandwidth limited to 2 Mbps";
+          banner.className = "throttled visible";
+        } else if (status === "restored") {
+          banner.textContent = "✅ Bandwidth restored";
+          banner.className = "restored visible";
+          setTimeout(() => { banner.className = "restored"; }, 3000);
+        } else {
+          banner.className = "";
+        }
+      } catch {}
+    }, 500);
   </script>
 </body>
 </html>
