@@ -90,6 +90,36 @@ moq-multicam publish --camera front --camera rear --source ffmpeg --tls-disable-
 ffmpeg ... | moq-multicam publish --broadcast "vehicle/truck-01/camera/front" --tls-disable-verify
 ```
 
+## Development
+
+For fast iteration, use the dev compose file. Source is bind-mounted so changes don't require image rebuilds — incremental builds take ~7 seconds.
+
+```bash
+# One-time: build the relay image
+cd ../moq-fork
+docker build -t moq-relay:local -f Dockerfile.relay .
+
+# Start dev environment
+cd ../moq-multicam  # (or the worktree)
+docker compose -f compose.dev.yml up -d
+
+# Build (incremental, debug)
+docker compose -f compose.dev.yml exec publisher-dev \
+  cargo build -p moq-multicam-cli --features openh264
+
+# Run
+docker compose -f compose.dev.yml exec publisher-dev \
+  cargo run -p moq-multicam-cli --features openh264 -- \
+  publish --relay https://relay:4443 --camera front --camera rear \
+  --source openh264 --tls-disable-verify
+
+# Run tests
+docker compose -f compose.dev.yml exec publisher-dev \
+  cargo test --workspace --features openh264
+```
+
+The viewer runs at http://localhost:5173 (same as production compose).
+
 ## Manual Setup
 
 ### Prerequisites
