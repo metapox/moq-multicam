@@ -2,6 +2,7 @@
 scripts/gen-token/target/
 Cargo.lock
 .certs/
+.env
 auth/
 videos/
 web/demo-status.txt

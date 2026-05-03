@@ -55,6 +55,11 @@
 
     const params = new URLSearchParams(location.search);
     const cameraOverride = params.get("cameras")?.split(",");
+    const jwtToken = params.get("jwt");
+
+    // Build relay URL, appending JWT if provided
+    const relayUrl = new URL(RELAY_URL);
+    if (jwtToken) relayUrl.searchParams.set("jwt", jwtToken);
 
     // --- Status banner ---
     const statusBanner = document.getElementById("status-banner");
@@ -76,7 +81,7 @@
 
     showBanner("⏳ Connecting to relay…", "connecting");
 
-    const connection = new Moq.Connection.Reload({ url: new URL(RELAY_URL), enabled: true });
+    const connection = new Moq.Connection.Reload({ url: relayUrl, enabled: true });
 
     const cameras = [];
     let focusIndex = 0;
@@ -365,6 +370,10 @@
 
     connection.established.watch(conn => {
       if (!conn || commandTrack) return;
+      if (!jwtToken) {
+        console.log("teleop: no JWT, control channel disabled (view-only mode)");
+        return;
+      }
       try {
         const broadcast = new SharedBroadcast();
         conn.publish(`vehicle/${VEHICLE_ID}/control`, broadcast);
@@ -372,6 +381,7 @@
         console.log("teleop: control channel ready");
       } catch (e) {
         console.error("teleop: failed to open control channel:", e);
+        showBanner("⚠️ Control channel unavailable", "error", 5000);
       }
     });
 
