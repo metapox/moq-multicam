@@ -166,13 +166,15 @@
           ctx.drawImage(frame, 0, 0);
           cam.lastFrameTime = performance.now();
 
-          // Read embedded timestamp from top-left 48 pixels
+          // Read embedded timestamp from top-left 48 pixels (only valid for openh264/test source)
           const pixels = ctx.getImageData(0, 0, 48, 1).data;
           let ts = 0;
           for (let i = 0; i < 48; i++) {
             ts = ts * 2 + (pixels[i * 4] > 128 ? 1 : 0);
           }
-          if (ts > 0) cam.latency = Date.now() - ts;
+          // Sanity check: valid timestamps are within 60s of now
+          if (ts > 0 && Math.abs(Date.now() - ts) < 60000) cam.latency = Date.now() - ts;
+          else cam.latency = null;
 
           frame.close();
         },
