@@ -2,7 +2,7 @@
 //!
 //! Loops the video forever. Requires ffmpeg in PATH and openh264 feature.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
@@ -74,13 +74,15 @@ impl VideoSource for FileSource {
                 ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .spawn()?;
+                .spawn()
+                .context("failed to spawn ffmpeg")?;
 
             let mut stdout = child.stdout.take().unwrap();
             let mut buf = vec![0u8; frame_size];
 
             loop {
-                if stdout.read_exact(&mut buf).await.is_err() {
+                if let Err(e) = stdout.read_exact(&mut buf).await {
+                    tracing::warn!(error = %e, "ffmpeg read failed, restarting");
                     break;
                 }
 
@@ -129,8 +131,11 @@ impl VideoSource for FileSource {
                     continue;
                 }
 
-                if matches!(frame_type, openh264::encoder::FrameType::IDR) {
-                    let _ = producer.keyframe();
+                if matches!(frame_type, openh264::encoder::FrameType::IDR)
+                    && producer.keyframe().is_err()
+                {
+                    tracing::warn!("producer closed, stopping file source");
+                    return Ok(());
                 }
 
                 let pts = frame_num * 1_000_000 / self.fps as u64;

@@ -87,8 +87,11 @@ impl VideoSource for OpenH264Source {
             encoder = enc;
 
             // Start new Group on actual IDR frames
-            if matches!(frame_type, openh264::encoder::FrameType::IDR) {
-                let _ = producer.keyframe();
+            if matches!(frame_type, openh264::encoder::FrameType::IDR)
+                && producer.keyframe().is_err()
+            {
+                tracing::warn!("producer closed, stopping openh264 source");
+                break Ok(());
             }
 
             let pts = frame_num * 1_000_000 / self.fps as u64;

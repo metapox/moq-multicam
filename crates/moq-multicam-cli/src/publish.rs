@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -492,7 +492,7 @@ fn make_client(tls_disable_verify: bool) -> Result<moq_native::Client> {
     if tls_disable_verify {
         config.tls.disable_verify = Some(true);
     }
-    config.init()
+    config.init().context("failed to initialize QUIC client")
 }
 
 async fn read_stdin(mut fmp4: moq_mux::import::Fmp4) -> Result<()> {
