@@ -80,10 +80,12 @@ impl VideoSource for V4lSource {
                 let bs = encoder.encode(&yuv)?;
                 let annexb = bs.to_vec();
                 let is_idr = matches!(bs.frame_type(), openh264::encoder::FrameType::IDR);
-                drop(bs);
 
                 if is_idr {
-                    producer.keyframe();
+                    if producer.keyframe().is_err() {
+                        tracing::warn!("producer closed, stopping v4l source");
+                        break;
+                    }
                 }
 
                 let pts = frame_num * 1_000_000 / self.fps as u64;

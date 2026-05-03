@@ -20,16 +20,17 @@
     .priority-badge.focus { background: #4a4; }
     .priority-badge.bg { background: #a84; }
     #stats { position: fixed; top: 0; right: 0; background: rgba(0,0,0,0.8); padding: 8px 12px; font-size: 0.7rem; font-family: monospace; line-height: 1.4; z-index: 10; border-bottom-left-radius: 6px; min-width: 180px; }
-    #demo-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 20; text-align: center; padding: 10px 16px; font-size: 1rem; font-weight: bold; transition: opacity 0.3s, transform 0.3s; opacity: 0; transform: translateY(-100%); pointer-events: none; }
-    #demo-banner.visible { opacity: 1; transform: translateY(0); }
-    #demo-banner.throttled { background: rgba(220, 50, 50, 0.9); }
-    #demo-banner.restored { background: rgba(50, 180, 50, 0.9); }
     #stats .label { color: #888; }
     #stats .value { color: #4f4; }
+    #status-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 20; text-align: center; padding: 10px 16px; font-size: 1rem; font-weight: bold; transition: opacity 0.3s, transform 0.3s; opacity: 0; transform: translateY(-100%); pointer-events: none; }
+    #status-banner.visible { opacity: 1; transform: translateY(0); }
+    #status-banner.connecting { background: rgba(200, 150, 50, 0.9); }
+    #status-banner.error { background: rgba(220, 50, 50, 0.9); }
+    #status-banner.ok { background: rgba(50, 180, 50, 0.9); }
   </style>
 </head>
 <body>
-  <div id="demo-banner"></div>
+  <div id="status-banner"></div>
   <div id="stats"></div>
   <div class="layout">
     <h1>moq-multicam viewer</h1>
@@ -54,6 +55,26 @@
 
     const params = new URLSearchParams(location.search);
     const cameraOverride = params.get("cameras")?.split(",");
+
+    // --- Status banner ---
+    const statusBanner = document.getElementById("status-banner");
+    let bannerTimeout = null;
+
+    function showBanner(msg, cls, autoHideMs) {
+      statusBanner.textContent = msg;
+      statusBanner.className = `${cls} visible`;
+      if (bannerTimeout) clearTimeout(bannerTimeout);
+      if (autoHideMs) {
+        bannerTimeout = setTimeout(() => { statusBanner.className = cls; }, autoHideMs);
+      }
+    }
+
+    function hideBanner() {
+      statusBanner.className = "";
+      if (bannerTimeout) { clearTimeout(bannerTimeout); bannerTimeout = null; }
+    }
+
+    showBanner("⏳ Connecting to relay…", "connecting");
 
     const connection = new Moq.Connection.Reload({ url: new URL(RELAY_URL), enabled: true });
 
@@ -100,25 +121,37 @@
 
     let started = false;
     connection.established.watch(async conn => {
-      if (!conn || started) return;
+      if (!conn) {
+        showBanner("⏳ Reconnecting to relay…", "connecting");
+        return;
+      }
+      if (started) return;
       started = true;
       connEstablished = conn;
+      showBanner("✅ Connected", "ok", 3000);
 
       let cameraNames;
       if (cameraOverride) {
         cameraNames = cameraOverride;
       } else {
-        const metaBroadcast = conn.consume(`vehicle/${VEHICLE_ID}/meta`);
-        const manifestTrack = metaBroadcast.subscribe("manifest", 100);
-        const frame = await manifestTrack.readFrame();
-        manifestTrack.close();
-        if (frame) {
-          const manifest = JSON.parse(new TextDecoder().decode(frame));
-          cameraNames = manifest.cameras.map(c => c.name);
-          console.log("manifest: discovered cameras", cameraNames);
-        } else {
+        try {
+          const metaBroadcast = conn.consume(`vehicle/${VEHICLE_ID}/meta`);
+          const manifestTrack = metaBroadcast.subscribe("manifest", 100);
+          const frame = await manifestTrack.readFrame();
+          manifestTrack.close();
+          if (frame) {
+            const manifest = JSON.parse(new TextDecoder().decode(frame));
+            cameraNames = manifest.cameras.map(c => c.name);
+            console.log("manifest: discovered cameras", cameraNames);
+          } else {
+            cameraNames = ["front", "rear"];
+            console.warn("manifest: no data, falling back to defaults");
+            showBanner("⚠️ No manifest — using default cameras", "error", 5000);
+          }
+        } catch (e) {
           cameraNames = ["front", "rear"];
-          console.warn("manifest: no data, falling back to defaults");
+          console.error("manifest fetch failed:", e);
+          showBanner("⚠️ Manifest error — using default cameras", "error", 5000);
         }
       }
 
@@ -132,17 +165,23 @@
     });
 
     async function startCamera(conn, cam, trackName, priority) {
-      const broadcast = conn.consume(`vehicle/${VEHICLE_ID}/camera/${cam.name}`);
-      cam.broadcast = broadcast;
+      try {
+        const broadcast = conn.consume(`vehicle/${VEHICLE_ID}/camera/${cam.name}`);
+        cam.broadcast = broadcast;
 
-      const catalogTrack = broadcast.subscribe("catalog.json", 100);
-      const catalog = await Catalog.fetch(catalogTrack);
-      if (!catalog?.video?.renditions?.["video"]) {
-        console.warn(`no video config for ${cam.name}`);
-        return;
+        const catalogTrack = broadcast.subscribe("catalog.json", 100);
+        const catalog = await Catalog.fetch(catalogTrack);
+        if (!catalog?.video?.renditions?.["video"]) {
+          console.warn(`no video config for ${cam.name}`);
+          showBanner(`⚠️ No video config for camera: ${cam.name}`, "error", 5000);
+          return;
+        }
+        cam.videoConfig = catalog.video.renditions;
+        subscribeVideo(cam, trackName, priority);
+      } catch (e) {
+        console.error(`failed to start camera ${cam.name}:`, e);
+        showBanner(`❌ Camera ${cam.name} failed to start`, "error", 5000);
       }
-      cam.videoConfig = catalog.video.renditions;
-      subscribeVideo(cam, trackName, priority);
     }
 
     function subscribeVideo(cam, trackName, priority) {
@@ -178,15 +217,24 @@
 
           frame.close();
         },
-        error(e) { console.error(`decoder error [${cam.name}]:`, e); },
+        error(e) {
+          console.error(`decoder error [${cam.name}]:`, e);
+          showBanner(`❌ Decoder error: ${cam.name}`, "error", 5000);
+        },
       });
 
-      decoder.configure({
-        codec: cam.videoConfig[trackName].codec,
-        codedWidth: cam.videoConfig[trackName].codedWidth,
-        codedHeight: cam.videoConfig[trackName].codedHeight,
-        optimizeForLatency: true,
-      });
+      try {
+        decoder.configure({
+          codec: cam.videoConfig[trackName].codec,
+          codedWidth: cam.videoConfig[trackName].codedWidth,
+          codedHeight: cam.videoConfig[trackName].codedHeight,
+          optimizeForLatency: true,
+        });
+      } catch (e) {
+        console.error(`decoder configure failed [${cam.name}]:`, e);
+        showBanner(`❌ Decoder config failed: ${cam.name}`, "error", 5000);
+        return;
+      }
       cam.decoder = decoder;
 
       (async () => {
@@ -217,6 +265,7 @@
             data: result.frame.data,
           }));
         }
+        console.warn(`stream ended for ${cam.name}`);
       })();
     }
 
@@ -261,7 +310,6 @@
       const focus = cameras[focusIndex];
       const now = performance.now();
 
-      // Per-camera FPS and bitrate (delta since last update)
       const lines = [];
 
       // Connection stats
@@ -304,10 +352,6 @@
     // --- Teleoperation control channel ---
     let commandTrack = null;
 
-    // Broadcast subclass that reuses existing tracks by name.
-    // When the browser creates a Track and the relay later subscribes,
-    // Publisher.runSubscribe() calls broadcast.subscribe() again —
-    // this ensures it gets the SAME Track the browser writes to.
     class SharedBroadcast extends Moq.Broadcast {
       #tracks = new Map();
       subscribe(name, priority) {
@@ -321,10 +365,14 @@
 
     connection.established.watch(conn => {
       if (!conn || commandTrack) return;
-      const broadcast = new SharedBroadcast();
-      conn.publish(`vehicle/${VEHICLE_ID}/control`, broadcast);
-      commandTrack = broadcast.subscribe("command", 0);
-      console.log("teleop: control channel ready");
+      try {
+        const broadcast = new SharedBroadcast();
+        conn.publish(`vehicle/${VEHICLE_ID}/control`, broadcast);
+        commandTrack = broadcast.subscribe("command", 0);
+        console.log("teleop: control channel ready");
+      } catch (e) {
+        console.error("teleop: failed to open control channel:", e);
+      }
     });
 
     const KEYS = {
@@ -346,28 +394,6 @@
       e.preventDefault();
       commandTrack.writeJson({ type: cmd, value: 0, ts: Date.now() });
     });
-    // --- Demo banner (polls demo-status.txt written by demo-throttle.sh) ---
-    const banner = document.getElementById("demo-banner");
-    let lastDemoStatus = "";
-    setInterval(async () => {
-      try {
-        const res = await fetch("/demo-status.txt?" + Date.now());
-        if (!res.ok) return;
-        const status = (await res.text()).trim();
-        if (status === lastDemoStatus) return;
-        lastDemoStatus = status;
-        if (status === "throttled") {
-          banner.textContent = "⚠️ Bandwidth limited to 2 Mbps";
-          banner.className = "throttled visible";
-        } else if (status === "restored") {
-          banner.textContent = "✅ Bandwidth restored";
-          banner.className = "restored visible";
-          setTimeout(() => { banner.className = "restored"; }, 3000);
-        } else {
-          banner.className = "";
-        }
-      } catch {}
-    }, 500);
   </script>
 </body>
 </html>
