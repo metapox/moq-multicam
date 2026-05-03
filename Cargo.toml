@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*", "examples/*"]
+exclude = ["scripts/gen-token"]
 resolver = "2"
 
 [workspace.package]

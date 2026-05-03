@@ -1,0 +1,10 @@
+[package]
+name = "moq-gen-token"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+moq-token = { path = "../../../moq-fork/rs/moq-token" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

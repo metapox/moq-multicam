@@ -6,11 +6,14 @@ services:
     ports:
       - "4443:4443/tcp"
       - "4443:4443/udp"
+    volumes:
+      - ./auth:/auth:ro
     command: >
       --server-bind [::]:4443
       --tls-generate localhost
       --tls-disable-verify
-      --auth-public ""
+      --auth-key /auth/server.pub.jwk
+      --auth-public-subscribe ""
       --web-http-listen [::]:4443
 
   publisher:
@@ -23,6 +26,7 @@ services:
     command: >
       publish
       --relay https://relay:4443
+      --jwt ${MOQ_JWT}
       --camera front --camera rear
       ${EXTRA_CAMERAS:+--camera left --camera right
       --camera front-left --camera front-right --camera rear-left --camera rear-right}

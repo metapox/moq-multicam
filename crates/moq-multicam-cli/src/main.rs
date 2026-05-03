@@ -23,6 +23,10 @@ enum Command {
         #[arg(long, default_value = "https://localhost:4443")]
         relay: Url,
 
+        /// JWT token for relay authentication
+        #[arg(long, env = "MOQ_JWT")]
+        jwt: Option<String>,
+
         /// Single camera: broadcast path for stdin pipe
         #[arg(long, conflicts_with_all = ["camera", "vehicle", "source"])]
         broadcast: Option<String>,
@@ -72,7 +76,8 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Publish {
-            relay,
+            mut relay,
+            jwt,
             broadcast,
             camera,
             vehicle,
@@ -80,6 +85,9 @@ async fn main() -> Result<()> {
             video_dir,
             tls_disable_verify,
         } => {
+            if let Some(token) = jwt {
+                relay.query_pairs_mut().append_pair("jwt", &token);
+            }
             if let Some(broadcast_path) = broadcast {
                 publish::run_stdin(relay, &broadcast_path, tls_disable_verify).await
             } else if !camera.is_empty() {
