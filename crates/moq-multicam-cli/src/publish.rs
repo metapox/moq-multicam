@@ -28,19 +28,30 @@ pub enum SourceKind {
 }
 
 /// Rendition configuration for adaptive bitrate.
-
 struct Rendition {
     track_name: &'static str,
     width: u32,
     height: u32,
     bitrate_kbps: u32,
+    #[allow(dead_code)]
     priority_offset: u8,
 }
 
-
 const RENDITIONS: &[Rendition] = &[
-    Rendition { track_name: "video", width: 640, height: 480, bitrate_kbps: 2000, priority_offset: 0 },
-    Rendition { track_name: "video-low", width: 320, height: 240, bitrate_kbps: 500, priority_offset: 2 },
+    Rendition {
+        track_name: "video",
+        width: 640,
+        height: 480,
+        bitrate_kbps: 2000,
+        priority_offset: 0,
+    },
+    Rendition {
+        track_name: "video-low",
+        width: 320,
+        height: 240,
+        bitrate_kbps: 500,
+        priority_offset: 2,
+    },
 ];
 
 /// Single camera: read fMP4 from stdin (backward compatible).
@@ -50,7 +61,8 @@ pub async fn run_stdin(relay: Url, broadcast_path: &str, tls_disable_verify: boo
     let mut broadcast = moq_lite::Broadcast::new().produce();
     let catalog = moq_mux::CatalogProducer::new(&mut broadcast)?;
     let fmp4 = moq_mux::import::Fmp4::new(
-        broadcast.clone(), catalog,
+        broadcast.clone(),
+        catalog,
         moq_mux::import::Fmp4Config { passthrough: false },
     );
 
@@ -95,9 +107,13 @@ pub async fn run_multicam(
 
     match source_kind {
         SourceKind::Ffmpeg => run_multicam_ffmpeg(&origin, vehicle_id, cameras, reconnect).await,
-        SourceKind::File => run_multicam_file(&origin, vehicle_id, cameras, video_dir, reconnect).await,
+        SourceKind::File => {
+            run_multicam_file(&origin, vehicle_id, cameras, video_dir, reconnect).await
+        }
         #[cfg(feature = "openh264")]
-        SourceKind::OpenH264 => run_multicam_openh264(&origin, vehicle_id, cameras, reconnect).await,
+        SourceKind::OpenH264 => {
+            run_multicam_openh264(&origin, vehicle_id, cameras, reconnect).await
+        }
         #[cfg(feature = "v4l")]
         SourceKind::V4l => run_multicam_v4l(&origin, vehicle_id, cameras, reconnect).await,
     }
@@ -175,7 +191,8 @@ fn spawn_ffmpeg_camera(
     let mut broadcast = moq_lite::Broadcast::new().produce();
     let catalog = moq_mux::CatalogProducer::new(&mut broadcast).expect("catalog creation failed");
     let fmp4 = moq_mux::import::Fmp4::new(
-        broadcast.clone(), catalog,
+        broadcast.clone(),
+        catalog,
         moq_mux::import::Fmp4Config { passthrough: false },
     );
 
@@ -220,7 +237,6 @@ async fn ffmpeg_camera_loop(
 // ---------------------------------------------------------------------------
 
 /// Publish vehicle manifest for camera discovery.
-
 fn publish_manifest(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -333,7 +349,6 @@ async fn run_multicam_v4l(
 }
 
 /// Generic camera publisher — works with any VideoSource.
-
 fn publish_camera_with<S: VideoSource>(
     origin: &moq_lite::OriginProducer,
     vehicle_id: &str,
@@ -348,7 +363,10 @@ fn publish_camera_with<S: VideoSource>(
     {
         let mut cat = catalog.lock();
         for r in RENDITIONS {
-            cat.video.insert(r.track_name, make_video_config(r.width, r.height, r.bitrate_kbps, 30.0))?;
+            cat.video.insert(
+                r.track_name,
+                make_video_config(r.width, r.height, r.bitrate_kbps, 30.0),
+            )?;
         }
     }
 
@@ -381,8 +399,12 @@ fn publish_camera_with<S: VideoSource>(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-
-fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> hang::catalog::VideoConfig {
+fn make_video_config(
+    width: u32,
+    height: u32,
+    bitrate_kbps: u32,
+    fps: f64,
+) -> hang::catalog::VideoConfig {
     hang::catalog::VideoConfig {
         codec: hang::catalog::H264 {
             profile: 0x42,
@@ -404,7 +426,6 @@ fn make_video_config(width: u32, height: u32, bitrate_kbps: u32, fps: f64) -> ha
     }
 }
 
-
 /// Subscribe to operator commands and log them.
 async fn subscribe_commands(origin: moq_lite::OriginProducer, vehicle_id: &str) {
     let control_path = format!("vehicle/{}/control", vehicle_id);
@@ -414,7 +435,10 @@ async fn subscribe_commands(origin: moq_lite::OriginProducer, vehicle_id: &str) 
 
     let mut consumer = match origin.consume_only(&[path]) {
         Some(c) => c,
-        None => { tracing::warn!("failed to consume control path"); return; }
+        None => {
+            tracing::warn!("failed to consume control path");
+            return;
+        }
     };
 
     tracing::info!("waiting for announced broadcasts...");
@@ -426,11 +450,17 @@ async fn subscribe_commands(origin: moq_lite::OriginProducer, vehicle_id: &str) 
             None => continue,
         };
 
-        let mut track = match broadcast.subscribe_track(&moq_lite::Track {
-            name: "command".to_string(),
-        }, moq_lite::Subscription::default()) {
+        let mut track = match broadcast.subscribe_track(
+            &moq_lite::Track {
+                name: "command".to_string(),
+            },
+            moq_lite::Subscription::default(),
+        ) {
             Ok(t) => t,
-            Err(e) => { tracing::warn!("failed to subscribe command track: {e}"); continue; }
+            Err(e) => {
+                tracing::warn!("failed to subscribe command track: {e}");
+                continue;
+            }
         };
 
         tracing::info!("operator connected, receiving commands");
@@ -462,7 +492,7 @@ fn make_client(tls_disable_verify: bool) -> Result<moq_native::Client> {
     if tls_disable_verify {
         config.tls.disable_verify = Some(true);
     }
-    config.init().map_err(Into::into)
+    config.init()
 }
 
 async fn read_stdin(mut fmp4: moq_mux::import::Fmp4) -> Result<()> {
@@ -470,7 +500,9 @@ async fn read_stdin(mut fmp4: moq_mux::import::Fmp4) -> Result<()> {
     let mut buffer = bytes::BytesMut::new();
     loop {
         let n = tokio::io::AsyncReadExt::read_buf(&mut stdin, &mut buffer).await?;
-        if n == 0 { return Ok(()); }
+        if n == 0 {
+            return Ok(());
+        }
         fmp4.decode(&mut buffer)?;
     }
 }

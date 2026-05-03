@@ -21,7 +21,13 @@ pub struct OpenH264Source {
 
 impl OpenH264Source {
     pub fn new(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
-        Self { width, height, fps, _bitrate_kbps: bitrate_kbps, camera_index: 0 }
+        Self {
+            width,
+            height,
+            fps,
+            _bitrate_kbps: bitrate_kbps,
+            camera_index: 0,
+        }
     }
 
     pub fn with_index(mut self, index: u8) -> Self {
@@ -42,7 +48,12 @@ impl VideoSource for OpenH264Source {
         let mut frame_num: u64 = 0;
         let gop_size = self.fps as u64; // keyframe every second
 
-        tracing::info!(w = self.width, h = self.height, fps = self.fps, "openh264 source started");
+        tracing::info!(
+            w = self.width,
+            h = self.height,
+            fps = self.fps,
+            "openh264 source started"
+        );
 
         loop {
             let now_ms = std::time::SystemTime::now()
@@ -57,14 +68,16 @@ impl VideoSource for OpenH264Source {
             let bitstream = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
                 // Force IDR at GOP boundary
                 if is_gop_start {
-                    unsafe { encoder.raw_api().force_intra_frame(true); }
+                    unsafe {
+                        encoder.raw_api().force_intra_frame(true);
+                    }
                 }
                 let bs = encoder.encode(&yuv)?;
                 let annexb = bs.to_vec();
                 let ft = bs.frame_type();
-                drop(bs);
                 Ok((annexb, encoder, ft))
-            }).await??;
+            })
+            .await??;
 
             let (annexb, enc, frame_type) = bitstream;
             encoder = enc;
@@ -87,7 +100,13 @@ impl VideoSource for OpenH264Source {
 }
 
 /// Generate an RGB test pattern — unique color per camera with scan line and timestamp.
-fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8, timestamp_ms: u64) -> Vec<u8> {
+fn generate_test_rgb(
+    w: usize,
+    h: usize,
+    frame: u64,
+    camera_index: u8,
+    timestamp_ms: u64,
+) -> Vec<u8> {
     let mut rgb = vec![0u8; w * h * 3];
     let (base_r, base_g, base_b) = CAMERA_COLORS[camera_index as usize % CAMERA_COLORS.len()];
 
@@ -103,7 +122,9 @@ fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8, timestamp
 
             // Vertical grid lines every 1/4 width
             if col % (w / 4) < 2 {
-                rgb[idx] = 255; rgb[idx + 1] = 255; rgb[idx + 2] = 255;
+                rgb[idx] = 255;
+                rgb[idx + 1] = 255;
+                rgb[idx + 2] = 255;
             }
         }
     }
@@ -112,7 +133,11 @@ fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8, timestamp
     // Each pixel: white (255) = bit 1, black (0) = bit 0.
     // 48 bits covers ~8900 years of milliseconds.
     for bit in 0..48.min(w) {
-        let val = if (timestamp_ms >> (47 - bit)) & 1 == 1 { 255u8 } else { 0u8 };
+        let val = if (timestamp_ms >> (47 - bit)) & 1 == 1 {
+            255u8
+        } else {
+            0u8
+        };
         let idx = bit * 3;
         rgb[idx] = val;
         rgb[idx + 1] = val;
@@ -123,7 +148,9 @@ fn generate_test_rgb(w: usize, h: usize, frame: u64, camera_index: u8, timestamp
     let line_row = (frame as usize) % h;
     for col in 0..w {
         let idx = (line_row * w + col) * 3;
-        rgb[idx] = 255; rgb[idx + 1] = 255; rgb[idx + 2] = 255;
+        rgb[idx] = 255;
+        rgb[idx + 1] = 255;
+        rgb[idx + 2] = 255;
     }
 
     rgb

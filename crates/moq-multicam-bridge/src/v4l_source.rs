@@ -28,7 +28,10 @@ impl V4lSource {
     pub fn new(device_path: &str, width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
         Self {
             device_path: device_path.to_string(),
-            width, height, fps, bitrate_kbps,
+            width,
+            height,
+            fps,
+            bitrate_kbps,
         }
     }
 }
@@ -91,7 +94,8 @@ impl VideoSource for V4lSource {
 
                 frame_num += 1;
             }
-        }).await?
+        })
+        .await?
     }
 }
 
@@ -113,8 +117,12 @@ fn yuyv_to_rgb(yuyv: &[u8], w: usize, h: usize) -> Vec<u8> {
         let b1 = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8;
 
         let idx = i * 6;
-        rgb[idx] = r0; rgb[idx + 1] = g0; rgb[idx + 2] = b0;
-        rgb[idx + 3] = r1; rgb[idx + 4] = g1; rgb[idx + 5] = b1;
+        rgb[idx] = r0;
+        rgb[idx + 1] = g0;
+        rgb[idx + 2] = b0;
+        rgb[idx + 3] = r1;
+        rgb[idx + 4] = g1;
+        rgb[idx + 5] = b1;
     }
     rgb
 }

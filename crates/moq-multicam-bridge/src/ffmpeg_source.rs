@@ -25,23 +25,37 @@ impl FfmpegSource {
 
         let mut child = Command::new("ffmpeg")
             .args([
-                "-hide_banner", "-v", "quiet",
-                "-f", "lavfi",
-                "-i", &format!("testsrc=size={size}:rate={}", self.fps),
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-g", &self.fps.to_string(),
-                "-f", "mp4",
-                "-movflags", "cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame",
-                "-flush_packets", "1",
+                "-hide_banner",
+                "-v",
+                "quiet",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("testsrc=size={size}:rate={}", self.fps),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-g",
+                &self.fps.to_string(),
+                "-f",
+                "mp4",
+                "-movflags",
+                "cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame",
+                "-flush_packets",
+                "1",
                 "-",
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()?;
 
-        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
         let mut reader = tokio::io::BufReader::new(stdout);
         let mut buffer = bytes::BytesMut::new();
 

@@ -23,7 +23,13 @@ pub struct FileSource {
 
 impl FileSource {
     pub fn new(path: &str, width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Self {
-        Self { path: path.to_string(), width, height, fps, _bitrate_kbps: bitrate_kbps }
+        Self {
+            path: path.to_string(),
+            width,
+            height,
+            fps,
+            _bitrate_kbps: bitrate_kbps,
+        }
     }
 }
 
@@ -50,12 +56,18 @@ impl VideoSource for FileSource {
             let mut child = Command::new("ffmpeg")
                 .args([
                     "-re",
-                    "-stream_loop", "-1",
-                    "-i", &self.path,
-                    "-f", "rawvideo",
-                    "-pix_fmt", "rgb24",
-                    "-s", &format!("{}x{}", self.width, self.height),
-                    "-r", &format!("{}", self.fps),
+                    "-stream_loop",
+                    "-1",
+                    "-i",
+                    &self.path,
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgb24",
+                    "-s",
+                    &format!("{}x{}", self.width, self.height),
+                    "-r",
+                    &format!("{}", self.fps),
                     "-an",
                     "-",
                 ])
@@ -67,7 +79,7 @@ impl VideoSource for FileSource {
             let mut buf = vec![0u8; frame_size];
 
             loop {
-                if let Err(_) = stdout.read_exact(&mut buf).await {
+                if stdout.read_exact(&mut buf).await.is_err() {
                     break;
                 }
 
@@ -80,7 +92,11 @@ impl VideoSource for FileSource {
                     .unwrap()
                     .as_millis() as u64;
                 for bit in 0..48.min(w) {
-                    let val = if (now_ms >> (47 - bit)) & 1 == 1 { 255u8 } else { 0u8 };
+                    let val = if (now_ms >> (47 - bit)) & 1 == 1 {
+                        255u8
+                    } else {
+                        0u8
+                    };
                     let idx = bit * 3;
                     rgb[idx] = val;
                     rgb[idx + 1] = val;
@@ -90,14 +106,16 @@ impl VideoSource for FileSource {
                 let result = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
                     let yuv = YUVBuffer::with_rgb(w, h, &rgb);
                     if is_gop_start {
-                        unsafe { encoder.raw_api().force_intra_frame(true); }
+                        unsafe {
+                            encoder.raw_api().force_intra_frame(true);
+                        }
                     }
                     let bs = encoder.encode(&yuv)?;
                     let data = bs.to_vec();
                     let ft = bs.frame_type();
-                    drop(bs);
                     Ok((data, encoder, ft))
-                }).await??;
+                })
+                .await??;
 
                 let (annexb, enc, frame_type) = result;
                 encoder = enc;

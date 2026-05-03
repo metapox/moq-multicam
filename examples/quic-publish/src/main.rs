@@ -12,13 +12,17 @@ const RELAY_URL: &str = "https://localhost:4443";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let cameras = vec![
-        CameraConfig { name: "front".into(), priority: 0 },
-        CameraConfig { name: "rear".into(), priority: 1 },
+        CameraConfig {
+            name: "front".into(),
+            priority: 0,
+        },
+        CameraConfig {
+            name: "rear".into(),
+            priority: 1,
+        },
     ];
 
     let origin = Origin::random().produce();
@@ -33,7 +37,10 @@ async fn main() -> anyhow::Result<()> {
         let cam_name = cam.name.clone();
         let source = TestSource::new(2, 512, 3);
         tokio::spawn(async move {
-            if let Err(e) = source.run(hang::container::OrderedProducer::new(track)).await {
+            if let Err(e) = source
+                .run(hang::container::OrderedProducer::new(track))
+                .await
+            {
                 tracing::warn!(camera = %cam_name, "test source stopped: {e}");
             }
         });
@@ -48,10 +55,7 @@ async fn main() -> anyhow::Result<()> {
     let url = url::Url::parse(RELAY_URL)?;
     tracing::info!(%url, "connecting to relay...");
 
-    let session = client
-        .with_publish(origin.consume())
-        .connect(url)
-        .await?;
+    let session = client.with_publish(origin.consume()).connect(url).await?;
 
     tracing::info!("connected! publishing to relay. Press Ctrl+C to stop.");
 

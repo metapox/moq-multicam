@@ -12,9 +12,7 @@ const FRAME_SIZE: usize = 1024;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let origin = moq_lite::Origin::random().produce();
     let consumer = origin.consume();
@@ -46,7 +44,10 @@ async fn publish(origin: moq_lite::OriginProducer) -> anyhow::Result<()> {
         }
 
         group.finish()?;
-        tracing::info!(group = group_seq, "published group ({FRAMES_PER_GROUP} frames)");
+        tracing::info!(
+            group = group_seq,
+            "published group ({FRAMES_PER_GROUP} frames)"
+        );
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
@@ -75,32 +76,30 @@ async fn subscribe(consumer: moq_lite::OriginConsumer) -> anyhow::Result<()> {
 
         tracing::info!(%path, "broadcast online, subscribing to 'video'");
 
-        let mut track = broadcast.subscribe_track(&moq_lite::Track {
-            name: "video".into(),
-        }, moq_lite::Subscription::default())?;
+        let mut track = broadcast.subscribe_track(
+            &moq_lite::Track {
+                name: "video".into(),
+            },
+            moq_lite::Subscription::default(),
+        )?;
 
         let mut group_count = 0u64;
-        loop {
-            match track.recv_group().await {
-                Ok(Some(mut group)) => {
-                    let mut frame_count = 0usize;
-                    let mut total_bytes = 0usize;
+        while let Ok(Some(mut group)) = track.recv_group().await {
+            let mut frame_count = 0usize;
+            let mut total_bytes = 0usize;
 
-                    while let Some(frame) = group.read_frame().await? {
-                        total_bytes += frame.len();
-                        frame_count += 1;
-                    }
-
-                    tracing::info!(
-                        group = group_count,
-                        frames = frame_count,
-                        bytes = total_bytes,
-                        "received group"
-                    );
-                    group_count += 1;
-                }
-                Ok(None) | Err(_) => break,
+            while let Some(frame) = group.read_frame().await? {
+                total_bytes += frame.len();
+                frame_count += 1;
             }
+
+            tracing::info!(
+                group = group_count,
+                frames = frame_count,
+                bytes = total_bytes,
+                "received group"
+            );
+            group_count += 1;
         }
 
         tracing::info!("track ended, total groups: {group_count}");

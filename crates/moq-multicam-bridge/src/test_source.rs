@@ -20,7 +20,11 @@ pub struct TestSource {
 
 impl TestSource {
     pub fn new(fps: u32, frame_size: usize, gop_size: u32) -> Self {
-        Self { frame_size, fps, gop_size }
+        Self {
+            frame_size,
+            fps,
+            gop_size,
+        }
     }
 }
 
@@ -53,17 +57,24 @@ mod tests {
     #[tokio::test]
     async fn test_source_produces_frames() {
         let mut broadcast = moq_lite::Broadcast::new().produce();
-        let track = broadcast.create_track(moq_lite::Track {
-            name: "video".into(),
-        }).unwrap();
+        let track = broadcast
+            .create_track(moq_lite::Track {
+                name: "video".into(),
+            })
+            .unwrap();
 
         let producer = OrderedProducer::new(track);
         let source = TestSource::new(30, 128, 3);
 
         let consumer = broadcast.consume();
-        let mut track_consumer = consumer.subscribe_track(&moq_lite::Track {
-            name: "video".into(),
-        }, moq_lite::Subscription::default()).unwrap();
+        let mut track_consumer = consumer
+            .subscribe_track(
+                &moq_lite::Track {
+                    name: "video".into(),
+                },
+                moq_lite::Subscription::default(),
+            )
+            .unwrap();
 
         let handle = tokio::spawn(source.run(producer));
 

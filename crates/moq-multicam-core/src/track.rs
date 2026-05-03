@@ -77,7 +77,11 @@ impl TrackPath {
     /// Track name within the broadcast.
     pub fn track_name(&self) -> String {
         match self.kind {
-            TrackKind::Camera => self.quality.unwrap_or(Quality::High).track_name().to_string(),
+            TrackKind::Camera => self
+                .quality
+                .unwrap_or(Quality::High)
+                .track_name()
+                .to_string(),
             TrackKind::Meta => self.name.clone(),
         }
     }
@@ -102,9 +106,7 @@ impl TrackPath {
                 };
                 Ok(Self::camera(vehicle_id, camera_name, quality))
             }
-            "meta" if parts.len() == 4 => {
-                Ok(Self::meta(vehicle_id, parts[3]))
-            }
+            "meta" if parts.len() == 4 => Ok(Self::meta(vehicle_id, parts[3])),
             _ => Err(err()),
         }
     }

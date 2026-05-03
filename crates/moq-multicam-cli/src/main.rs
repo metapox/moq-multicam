@@ -6,7 +6,11 @@ mod publish;
 mod subscribe;
 
 #[derive(Parser)]
-#[command(name = "moq-multicam", version, about = "Multi-camera streaming over MoQ")]
+#[command(
+    name = "moq-multicam",
+    version,
+    about = "Multi-camera streaming over MoQ"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -68,25 +72,44 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Publish {
-            relay, broadcast, camera, vehicle, source, video_dir, tls_disable_verify,
+            relay,
+            broadcast,
+            camera,
+            vehicle,
+            source,
+            video_dir,
+            tls_disable_verify,
         } => {
             if let Some(broadcast_path) = broadcast {
                 publish::run_stdin(relay, &broadcast_path, tls_disable_verify).await
             } else if !camera.is_empty() {
-                let cameras: Vec<_> = camera.iter().enumerate().map(|(i, name)| {
-                    moq_multicam_core::CameraConfig {
+                let cameras: Vec<_> = camera
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| moq_multicam_core::CameraConfig {
                         name: name.clone(),
                         priority: i as u8,
-                    }
-                }).collect();
+                    })
+                    .collect();
                 let source_kind = parse_source(&source)?;
-                publish::run_multicam(relay, &vehicle, &cameras, source_kind, &video_dir, tls_disable_verify).await
+                publish::run_multicam(
+                    relay,
+                    &vehicle,
+                    &cameras,
+                    source_kind,
+                    &video_dir,
+                    tls_disable_verify,
+                )
+                .await
             } else {
                 anyhow::bail!("specify --broadcast for stdin pipe or --camera for built-in source")
             }
         }
         Command::Subscribe {
-            relay, vehicle, cameras, tls_disable_verify,
+            relay,
+            vehicle,
+            cameras,
+            tls_disable_verify,
         } => {
             let cameras = parse_cameras(&cameras);
             subscribe::run(relay, &vehicle, &cameras, tls_disable_verify).await
@@ -115,7 +138,9 @@ fn parse_source(s: &str) -> Result<publish::SourceKind> {
         #[cfg(feature = "v4l")]
         "v4l" | "v4l2" => Ok(publish::SourceKind::V4l),
         #[cfg(not(feature = "v4l"))]
-        "v4l" | "v4l2" => anyhow::bail!("v4l support not compiled in (enable 'v4l' feature, Linux only)"),
+        "v4l" | "v4l2" => {
+            anyhow::bail!("v4l support not compiled in (enable 'v4l' feature, Linux only)")
+        }
         other => anyhow::bail!("unknown source: {other} (expected: ffmpeg, openh264, v4l, file)"),
     }
 }

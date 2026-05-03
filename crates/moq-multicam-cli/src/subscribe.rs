@@ -23,7 +23,8 @@ pub async fn run(
     let _session = client.with_consume(origin.clone()).connect(relay).await?;
     tracing::info!("connected");
 
-    let broadcast_path = TrackPath::camera(vehicle_id, &cameras[0].name, Quality::High).broadcast_path();
+    let broadcast_path =
+        TrackPath::camera(vehicle_id, &cameras[0].name, Quality::High).broadcast_path();
     let path: Path<'_> = broadcast_path.as_str().into();
     let mut consumer = origin
         .consume_only(&[path])
@@ -45,12 +46,15 @@ pub async fn run(
         let mut handles = Vec::new();
         for cam in cameras {
             let track_path = TrackPath::camera(vehicle_id, &cam.name, Quality::High);
-            let mut track = broadcast.subscribe_track(&Track {
-                name: track_path.track_name(),
-            }, moq_multicam_core::Subscription {
-                priority: cam.priority,
-                ..Default::default()
-            })?;
+            let mut track = broadcast.subscribe_track(
+                &Track {
+                    name: track_path.track_name(),
+                },
+                moq_multicam_core::Subscription {
+                    priority: cam.priority,
+                    ..Default::default()
+                },
+            )?;
 
             let cam_name = cam.name.clone();
             handles.push(tokio::spawn(async move {

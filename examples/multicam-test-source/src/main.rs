@@ -10,13 +10,17 @@ const VEHICLE_ID: &str = "truck-01";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let cameras = vec![
-        CameraConfig { name: "front".into(), priority: 0 },
-        CameraConfig { name: "rear".into(), priority: 1 },
+        CameraConfig {
+            name: "front".into(),
+            priority: 0,
+        },
+        CameraConfig {
+            name: "rear".into(),
+            priority: 1,
+        },
     ];
 
     let origin = Origin::random().produce();
@@ -33,7 +37,10 @@ async fn main() -> anyhow::Result<()> {
         let cam_name = cam.name.clone();
         let source = TestSource::new(30, 512, 5);
         tokio::spawn(async move {
-            if let Err(e) = source.run(hang::container::OrderedProducer::new(track)).await {
+            if let Err(e) = source
+                .run(hang::container::OrderedProducer::new(track))
+                .await
+            {
                 tracing::warn!(camera = %cam_name, "test source stopped: {e}");
             }
         });
@@ -67,12 +74,15 @@ async fn subscribe(
         let mut handles = Vec::new();
         for cam in cameras {
             let track_path = TrackPath::camera(vehicle_id, &cam.name, Quality::High);
-            let mut track = broadcast.subscribe_track(&Track {
-                name: track_path.track_name(),
-            }, Subscription {
-                priority: cam.priority,
-                ..Default::default()
-            })?;
+            let mut track = broadcast.subscribe_track(
+                &Track {
+                    name: track_path.track_name(),
+                },
+                Subscription {
+                    priority: cam.priority,
+                    ..Default::default()
+                },
+            )?;
 
             let cam_name = cam.name.clone();
             handles.push(tokio::spawn(async move {

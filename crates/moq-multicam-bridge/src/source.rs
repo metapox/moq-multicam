@@ -18,8 +18,6 @@ pub struct SourceConfig {
 /// Call `producer.keyframe()` before each IDR frame.
 /// Returns when the source stops or an error occurs.
 pub trait VideoSource: Send + 'static {
-    fn run(
-        self,
-        producer: OrderedProducer,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn run(self, producer: OrderedProducer)
+        -> impl std::future::Future<Output = Result<()>> + Send;
 }

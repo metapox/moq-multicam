@@ -4,10 +4,8 @@
 //! are absorbed in one place.
 
 pub use moq_lite::{
-    Broadcast, BroadcastProducer,
-    GroupProducer,
-    Origin, OriginConsumer, OriginProducer,
-    Path, Subscription, Track, TrackConsumer, TrackProducer,
+    Broadcast, BroadcastProducer, GroupProducer, Origin, OriginConsumer, OriginProducer, Path,
+    Subscription, Track, TrackConsumer, TrackProducer,
 };
 
 use crate::{CameraConfig, Quality};
@@ -21,7 +19,7 @@ pub fn create_camera_broadcast(
     let mut broadcast = Broadcast::default().produce();
     let mut tracks = Vec::with_capacity(cameras.len());
 
-    for cam in cameras {
+    for _cam in cameras {
         let track = broadcast.create_track(Track {
             name: Quality::High.track_name().to_string(),
         })?;
@@ -38,9 +36,10 @@ mod tests {
 
     #[test]
     fn create_broadcast_with_cameras() {
-        let cameras = vec![
-            CameraConfig { name: "front".into(), priority: 0 },
-        ];
+        let cameras = vec![CameraConfig {
+            name: "front".into(),
+            priority: 0,
+        }];
 
         let (broadcast, tracks) = create_camera_broadcast("truck-01", &cameras).unwrap();
         assert_eq!(tracks.len(), 1);

@@ -12,13 +12,17 @@ const RELAY_URL: &str = "https://localhost:4443";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let cameras = vec![
-        CameraConfig { name: "front".into(), priority: 0 },
-        CameraConfig { name: "rear".into(), priority: 1 },
+        CameraConfig {
+            name: "front".into(),
+            priority: 0,
+        },
+        CameraConfig {
+            name: "rear".into(),
+            priority: 1,
+        },
     ];
 
     let origin = Origin::random().produce();
@@ -31,10 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let url = url::Url::parse(RELAY_URL)?;
     tracing::info!(%url, "connecting to relay...");
 
-    let session = client
-        .with_consume(origin.clone())
-        .connect(url)
-        .await?;
+    let _session = client.with_consume(origin.clone()).connect(url).await?;
 
     tracing::info!("connected to relay");
 
@@ -61,12 +62,15 @@ async fn main() -> anyhow::Result<()> {
         let mut handles = Vec::new();
         for cam in &cameras {
             let track_path = TrackPath::camera(VEHICLE_ID, &cam.name, Quality::High);
-            let mut track = broadcast.subscribe_track(&Track {
-                name: track_path.track_name(),
-            }, Subscription {
-                priority: cam.priority,
-                ..Default::default()
-            })?;
+            let mut track = broadcast.subscribe_track(
+                &Track {
+                    name: track_path.track_name(),
+                },
+                Subscription {
+                    priority: cam.priority,
+                    ..Default::default()
+                },
+            )?;
 
             let cam_name = cam.name.clone();
             handles.push(tokio::spawn(async move {
