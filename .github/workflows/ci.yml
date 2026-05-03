@@ -40,5 +40,10 @@ jobs:
 
       - name: Security audit
         run: |
-          curl -LsSf https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.1/cargo-audit-x86_64-unknown-linux-gnu-v0.22.1.tgz | tar xzf - --strip-components=1 -C ~/.cargo/bin
+          curl -LsSf https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.1/cargo-audit-x86_64-unknown-linux-gnu-v0.22.1.tgz -o /tmp/cargo-audit.tgz
+          echo "1890badd5f15831a9af4b074399fcd21e6f7c0fe42c84e9254cdffc9f813765c /tmp/cargo-audit.tgz" | sha256sum --check
+          tar xzf /tmp/cargo-audit.tgz --strip-components=1 -C ~/.cargo/bin
+          # RUSTSEC-2025-0008: openh264-sys2 heap overflow in decoder (we only use encoder)
+          # RUSTSEC-2024-0436: paste crate unmaintained (transitive dep from moq-fork)
+          # RUSTSEC-2025-0134: rustls-pemfile unmaintained (transitive dep from moq-fork)
           cargo audit --ignore RUSTSEC-2025-0008 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2025-0134

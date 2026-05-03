@@ -59,7 +59,11 @@
 
     // Build relay URL, appending JWT if provided
     const relayUrl = new URL(RELAY_URL);
-    if (jwtToken) relayUrl.searchParams.set("jwt", jwtToken);
+    if (jwtToken) {
+      relayUrl.searchParams.set("jwt", jwtToken);
+      // Remove JWT from browser URL to prevent leakage via history/Referer
+      history.replaceState({}, "", location.pathname);
+    }
 
     // --- Status banner ---
     const statusBanner = document.getElementById("status-banner");

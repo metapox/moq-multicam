@@ -99,8 +99,12 @@ async fn main() -> anyhow::Result<()> {
                             );
                             group_count += 1;
                         }
-                        _ => {
+                        Ok(None) => {
                             tracing::info!(camera = %cam_name, "track ended after {group_count} groups");
+                            return;
+                        }
+                        Err(e) => {
+                            tracing::warn!(camera = %cam_name, error = %e, "track error after {group_count} groups");
                             return;
                         }
                     }

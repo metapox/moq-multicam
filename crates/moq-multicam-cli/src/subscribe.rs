@@ -81,8 +81,12 @@ pub async fn run(
                             );
                             group_count += 1;
                         }
-                        _ => {
+                        Ok(None) => {
                             tracing::info!(camera = %cam_name, "track ended ({group_count} groups)");
+                            return;
+                        }
+                        Err(e) => {
+                            tracing::warn!(camera = %cam_name, error = %e, "track error ({group_count} groups)");
                             return;
                         }
                     }
