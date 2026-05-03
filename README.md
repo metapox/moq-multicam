@@ -2,9 +2,36 @@
 
 Low-latency multi-camera streaming over [MoQ (Media over QUIC)](https://moq.dev/).
 
-Stream 8 cameras to browsers in real-time with sub-second latency, per-camera subscribe/unsubscribe, and priority-based bandwidth adaptation.
+A reference implementation for priority-based multi-camera streaming — built on QUIC stream priorities to keep the most important camera flowing when bandwidth is constrained.
 
-> **Status**: Phase 2 in progress — teleoperation control channel, E2E latency measurement, 8-camera streaming with priority-based bandwidth adaptation
+> **Status**: Experimental / personal project. MoQ itself is still an [IETF draft](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/) and the ecosystem is evolving rapidly. This project depends on a [fork of moq-dev/moq](https://github.com/metapox/moq) with patches for [SUBSCRIBE_UPDATE JS API (#1363)](https://github.com/moq-dev/moq/issues/1363) and [PriorityQueue in-flight update (#1370)](https://github.com/moq-dev/moq/issues/1370) that are not yet upstream. **Not production-ready** — this is a solo exploration of what MoQ can do for multi-camera streaming. Feedback and ideas welcome.
+
+## What This Project Does
+
+moq-multicam is a **multi-camera streaming framework** that demonstrates how MoQ's track-level pub/sub and QUIC stream priorities can solve a real problem: keeping the right camera visible when bandwidth drops.
+
+**Core idea**: Each camera is an independent MoQ broadcast. Each subscription has a priority. When the network is constrained, QUIC delivers high-priority streams first — the focused camera keeps flowing while background cameras gracefully degrade.
+
+**Showcase**: Autonomous vehicle teleoperation, where an operator remotely monitors multiple dashcams over LTE/5G and needs instant camera switching without video interruption.
+
+### Why MoQ (and not WebRTC/RTSP/ROS2)?
+
+| Capability | WebRTC | RTSP | ROS2 DDS | **MoQ** |
+|---|---|---|---|---|
+| WAN / firewall traversal | ✅ | ❌ | ❌ | ✅ (WebTransport) |
+| CDN-like fan-out | ❌ (SFU limits) | ❌ | ❌ | ✅ (relay) |
+| Per-stream priority | ❌ | ❌ | Partial | ✅ (QUIC native) |
+| Subscribe individual cameras | ❌ | ✅ | ✅ | ✅ (track-level) |
+| Connection migration (handover) | ❌ | ❌ | ❌ | ✅ (QUIC) |
+| Browser native | ✅ | ❌ | ❌ | ✅ (WebTransport + WebCodecs) |
+
+### What's Not Here (Yet)
+
+- **No production relay** — uses moq-dev's reference relay, which is single-node
+- **No auth / encryption beyond TLS** — no viewer authentication or DRM
+- **No adaptive bitrate** — priority-based degradation only, no ABR ladder
+- **Software encode only** — openh264 (no GPU / hardware encode)
+- **Upstream patches pending** — depends on moq-dev/moq fork for SUBSCRIBE_UPDATE
 
 ## Demo: Priority-Based Bandwidth Adaptation
 
@@ -22,19 +49,6 @@ Stream 8 cameras to browsers in real-time with sub-second latency, per-camera su
 5. Bandwidth restored — all cameras recover
 
 This works because moq-multicam uses [SUBSCRIBE_UPDATE](https://github.com/moq-dev/moq/issues/1363) to change priority without closing the subscription, and a [patched PriorityQueue](https://github.com/moq-dev/moq/issues/1370) that propagates priority changes to in-flight QUIC streams.
-
-## Why
-
-Existing solutions don't handle **multi-camera × WAN × scalable** well:
-
-| Solution | Limitation | moq-multicam |
-|---|---|---|
-| GStreamer + RTSP | No CDN scaling, poor WAN | Relay-based fan-out |
-| WebRTC (LiveKit) | SFU scaling limits | QUIC stream priority |
-| ROS2 DDS | NAT/firewall issues over WAN | WebTransport through firewalls |
-| AWS Kinesis Video | Vendor lock-in, 1-5s latency | Open source, sub-second |
-
-MoQ provides QUIC connection migration (mobile handover resilience), relay-based fan-out (CDN-like scaling), and track-level pub/sub (subscribe only to cameras you need).
 
 ## Features
 
