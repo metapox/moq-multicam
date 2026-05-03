@@ -1,5 +1,7 @@
 /target
+scripts/gen-token/target/
 Cargo.lock
 .certs/
+auth/
 videos/
 web/demo-status.txt
