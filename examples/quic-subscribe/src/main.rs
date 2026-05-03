@@ -80,7 +80,13 @@ async fn main() -> anyhow::Result<()> {
                         Ok(Some(mut group)) => {
                             let mut frames = 0usize;
                             let mut bytes = 0usize;
-                            while let Some(f) = group.read_frame().await.unwrap_or(None) {
+                            while let Some(f) = match group.read_frame().await {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    tracing::warn!(camera = %cam_name, error = %e, "frame read error");
+                                    None
+                                }
+                            } {
                                 bytes += f.len();
                                 frames += 1;
                             }

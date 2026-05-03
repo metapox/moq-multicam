@@ -92,7 +92,13 @@ async fn subscribe(
                         Ok(Some(mut group)) => {
                             let mut frames = 0usize;
                             let mut bytes = 0usize;
-                            while let Some(f) = group.read_frame().await.unwrap_or(None) {
+                            while let Some(f) = match group.read_frame().await {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    tracing::warn!(camera = %cam_name, error = %e, "frame read error");
+                                    None
+                                }
+                            } {
                                 bytes += f.len();
                                 frames += 1;
                             }
@@ -109,7 +115,14 @@ async fn subscribe(
                                 return;
                             }
                         }
-                        _ => return,
+                        Ok(None) => {
+                            tracing::info!(camera = %cam_name, "track ended after {group_count} groups");
+                            return;
+                        }
+                        Err(e) => {
+                            tracing::warn!(camera = %cam_name, error = %e, "track error after {group_count} groups");
+                            return;
+                        }
                     }
                 }
             }));
