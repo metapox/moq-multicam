@@ -15,6 +15,8 @@ pub struct OpenH264Source {
     width: u32,
     height: u32,
     fps: u32,
+    // TODO: openh264 0.4 does not expose bitrate config. Upgrade to 0.8+ to use
+    // EncoderConfig::bitrate(BitRate::from_bps(bitrate_kbps * 1000)).
     _bitrate_kbps: u32,
     camera_index: u8,
 }
@@ -68,6 +70,8 @@ impl VideoSource for OpenH264Source {
             let bitstream = tokio::task::spawn_blocking(move || -> Result<_, openh264::Error> {
                 // Force IDR at GOP boundary
                 if is_gop_start {
+                    // SAFETY: force_intra_frame is a simple boolean setter on the initialized encoder.
+                    // The encoder is exclusively owned within this spawn_blocking closure.
                     unsafe {
                         encoder.raw_api().force_intra_frame(true);
                     }

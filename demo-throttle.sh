@@ -28,7 +28,7 @@ sleep 5
 echo "🔴 Bandwidth limited to 2000kbps"
 echo "throttled" > "$STATUS_FILE"
 docker compose -f "$COMPOSE_FILE" exec "$SERVICE" \
-  tc qdisc add dev eth0 root tbf rate 2500kbit burst 64kbit latency 50ms
+  sh -c "tc qdisc del dev eth0 root 2>/dev/null; tc qdisc add dev eth0 root tbf rate 2500kbit burst 64kbit latency 50ms"
 
 sleep 30
 

@@ -3,6 +3,9 @@ use moq_token::{Algorithm, Claims, Key};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 #[derive(Parser)]
 #[command(about = "Generate auth keys and JWT tokens for moq-relay")]
 struct Cli {
@@ -39,6 +42,8 @@ fn main() -> anyhow::Result<()> {
             let key = Key::generate(Algorithm::ES256, None)?;
             let priv_path = output_dir.join("server.jwk");
             key.to_file(&priv_path)?;
+            #[cfg(unix)]
+            std::fs::set_permissions(&priv_path, std::fs::Permissions::from_mode(0o600))?;
             eprintln!("wrote private key: {}", priv_path.display());
 
             let pub_key = key.to_public()?;
