@@ -90,6 +90,8 @@ relay:
 ## Security Notes
 
 - Private key (`server.jwk`) has file permissions `0600` and is in `.gitignore`
-- `.env` containing tokens is in `.gitignore`
+- `.env` containing tokens is in `.gitignore` with `0600` permissions
 - JWT is passed as a URL query parameter (`?jwt=...`) — this is a moq-relay design choice since QUIC/WebTransport lacks HTTP-style headers at connection time
-- Token values are not logged; only the token length is logged on the publisher side
+  - **Browser mitigation**: the viewer removes the JWT from the URL bar immediately via `history.replaceState` to prevent leakage through browser history and Referer headers
+  - **Publisher mitigation**: token values are not logged; only the token length is logged
+- Tokens default to 1-year expiry. For production, use shorter lifetimes (`--hours 8`) and rotate regularly

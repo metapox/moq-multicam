@@ -36,6 +36,7 @@ cat > "$ENV_FILE" <<EOF
 MOQ_JWT=$PUBLISHER_JWT
 MOQ_OPERATOR_JWT=$OPERATOR_JWT
 EOF
+chmod 600 "$ENV_FILE"
 
 echo ""
 echo "Written to $ENV_FILE:"
